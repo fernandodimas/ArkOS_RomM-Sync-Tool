@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.2.8"
+readonly VERSION="1.2.9"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly TMP_DIR="/tmp/rommsync"
 # Raízes onde o ArkOS armazena ROMs e saves
@@ -1277,9 +1277,20 @@ _cleanup_gptokeyb() {
 
 # --- Auto-update via GitHub -----------------------------------------------
 
-# _ver_gt v1 v2 → retorna 0 se v1 > v2 (comparação semântica)
+# _ver_gt v1 v2 → retorna 0 se v1 > v2 (puro bash, sem sort -V)
 _ver_gt() {
-    [ "$(printf '%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ] && [ "$1" != "$2" ]
+    local v1="$1" v2="$2"
+    [ "$v1" = "$v2" ] && return 1
+    local IFS='.'
+    local -a a1=($v1) a2=($v2)
+    local i
+    for i in 0 1 2; do
+        local n1="${a1[$i]:-0}" n2="${a2[$i]:-0}"
+        if [ "$n1" -gt "$n2" ] 2>/dev/null; then return 0
+        elif [ "$n1" -lt "$n2" ] 2>/dev/null; then return 1
+        fi
+    done
+    return 1  # iguais
 }
 
 check_update() {
@@ -1351,11 +1362,11 @@ check_update() {
 
     dialog --backtitle "$BACKTITLE" \
            --title "Atualizado!" \
-           --msgbox "✓ Atualizado para v$latest_ver!\n\nO aplicativo será reiniciado." \
+           --msgbox "✓ Atualizado para v$latest_ver!\n\nFeche e reabra o aplicativo para usar a nova versão." \
            $DLG_H $DLG_W > "$CURR_TTY"
 
-    log "Atualizado de v$VERSION para v$latest_ver. Re-executando..."
-    exec "$script_path" "$@"
+    log "Atualizado de v$VERSION para v$latest_ver. Encerrando para aplicar."
+    exit 0
 }
 
 # --- Ponto de Entrada -----------------------------------------------------
@@ -1395,7 +1406,7 @@ main() {
 
     check_dependencies
     check_wifi
-    check_update
+    check_update || log "AVISO: check_update falhou, continuando sem atualização."
 
     # Configuração inicial se não existir
     if ! load_config; then
