@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.2.5"
+readonly VERSION="1.2.6"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly TMP_DIR="/tmp/rommsync"
 # Raízes onde o ArkOS armazena ROMs e saves
@@ -250,16 +250,40 @@ check_dependencies() {
 }
 
 check_wifi() {
-    log "Verificando conectividade Wi-Fi..."
-    if ! ping -c 1 -W 3 8.8.8.8 &>/dev/null && \
-       ! ping -c 1 -W 3 1.1.1.1 &>/dev/null; then
-        dialog --backtitle "$BACKTITLE" \
-               --title "Sem Conexão" \
-               --msgbox "⚠  Wi-Fi não detectado.\n\nConecte o console à rede Wi-Fi antes\nde usar o RomM-Sync-Tool." \
-               $DLG_H $DLG_W > "$CURR_TTY"
+    log "Verificando conectividade de rede..."
+
+    # Método 1: verifica rota padrão (não requer root, não usa ICMP)
+    if ip route 2>/dev/null | grep -q "^default"; then
+        log "Rede OK (rota padrão detectada)."
+        return 0
+    fi
+
+    # Método 2: curl TCP para 8.8.8.8 porta 53 (DNS over TCP, sem ICMP)
+    if curl --silent --connect-timeout 3 --max-time 4 \
+            "http://connectivity-check.ubuntu.com/" \
+            -o /dev/null 2>/dev/null; then
+        log "Rede OK (curl connectivity-check)."
+        return 0
+    fi
+
+    # Método 3: ping (pode falhar sem root em alguns sistemas)
+    if ping -c 1 -W 3 8.8.8.8 &>/dev/null 2>&1 || \
+       ping -c 1 -W 3 1.1.1.1 &>/dev/null 2>&1; then
+        log "Rede OK (ping)."
+        return 0
+    fi
+
+    # Nenhum método confirmou conectividade — avisa mas permite continuar
+    log "AVISO: Nenhum método detectou conectividade. Wi-Fi pode não estar ativo."
+    dialog --backtitle "$BACKTITLE" \
+           --title "Sem Conexão Detectada" \
+           --yesno "⚠  Não foi possível confirmar a conexão Wi-Fi.\n\nVerifique se o Wi-Fi está conectado.\n\nDeseja tentar continuar mesmo assim?" \
+           $DLG_H $DLG_W > "$CURR_TTY"
+    local resp=$?
+    if [ "$resp" -ne 0 ]; then
         exit 1
     fi
-    log "Wi-Fi OK."
+    log "Usuário optou por continuar sem confirmação de rede."
 }
 
 # --- Configuração ---------------------------------------------------------
