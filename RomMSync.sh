@@ -9,7 +9,7 @@ set -euo pipefail
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.1.2"
+readonly VERSION="1.1.3"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly TMP_DIR="/tmp/rommsync"
 # Raízes onde o ArkOS armazena ROMs e saves
@@ -1033,15 +1033,15 @@ main_menu() {
         local choice
         choice=$(dialog --backtitle "$SCRIPT_NAME v$VERSION" \
                         --title "Menu Principal" \
-                        --cancel-label "Sair" \
                         --menu "Use D-Pad para navegar:" \
-                        $DLG_H $DLG_W 7 \
+                        $DLG_H $DLG_W 8 \
                         "1" "⬆  Backup de Saves → RomM" \
                         "2" "⬇  Download de Jogos ← RomM" \
                         "3" "⚙  Reconfigurar Servidor" \
                         "4" "📶 Status da Conexão" \
                         "5" "📋 Ver Log" \
                         "6" "🔄 Atualizar Script" \
+                        "7" "🚪 Sair" \
                         3>&1 1>&2 2>&3) || break
 
         case "$choice" in
@@ -1063,9 +1063,16 @@ main_menu() {
                 fi
                 ;;
             6) self_update ;;
+            7)
+                dialog --backtitle "$SCRIPT_NAME" \
+                       --title "Sair" \
+                       --yesno "Deseja sair do $SCRIPT_NAME?" \
+                       7 $DLG_W && break
+                ;;
         esac
     done
 }
+
 
 # --- Ponto de Entrada -----------------------------------------------------
 
