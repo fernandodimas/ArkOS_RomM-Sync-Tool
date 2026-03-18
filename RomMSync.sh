@@ -12,13 +12,18 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.2.6"
+readonly VERSION="1.2.7"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly TMP_DIR="/tmp/rommsync"
 # Raízes onde o ArkOS armazena ROMs e saves
-# Podem estar em /roms OU /roms2 (segunda partição/SD)
 readonly ROMS_ROOTS=("/roms" "/roms2")
 readonly LOG_FILE="/tmp/rommsync.log"
+
+# GitHub — usado pelo auto-updater
+readonly GITHUB_REPO="fernandodimas/ArkOS_RomM-Sync-Tool"
+readonly GITHUB_RAW="https://raw.githubusercontent.com/${GITHUB_REPO}/main/RomMSync.sh"
+# Arquivo de config que o usuário pode criar no SD e importar sem teclado
+readonly SD_CONFIG_IMPORT="/roms/rommsync_config.conf"
 
 # TTY da tela física do ArkOS
 CURR_TTY="/dev/tty1"
@@ -319,35 +324,114 @@ EOF
 }
 
 setup_config() {
-    local url user pass confirm
+    local url user pass
 
     dialog --backtitle "$BACKTITLE" \
            --title "Configuração Inicial" \
-           --msgbox "Bem-vindo ao $SCRIPT_NAME v$VERSION!\n\nVamos configurar a conexão com seu servidor RomM." \
+           --msgbox "Bem-vindo ao $SCRIPT_NAME v$VERSION!\n\nEscolha como fornecer as configurações\ndo servidor RomM." \
            $DLG_H $DLG_W > "$CURR_TTY"
 
-    url=$(dialog --output-fd 1 --backtitle "$BACKTITLE" \
-                 --title "URL do Servidor" \
-                 --inputbox "Digite a URL do RomM:\n(ex: http://192.168.1.100:3000)" \
-                 $DLG_H $DLG_W \
-                 "http://" \
-                 2>"$CURR_TTY") || return 1
+    # --- Menu de método de configuração ------------------------------------
+    local method
+    method=$(dialog --output-fd 1 \
+                    --backtitle "$BACKTITLE" \
+                    --title "Como configurar?" \
+                    --menu "Escolha uma opção:" $DLG_H $DLG_W 4 \
+                    "sd"     "Importar arquivo do cartão SD (recomendado)" \
+                    "manual" "Digitar manualmente (requer teclado USB)" \
+                    "ssh"    "Ver instruções para configurar via SSH" \
+                    2>"$CURR_TTY") || return 1
 
-    user=$(dialog --output-fd 1 --backtitle "$BACKTITLE" \
-                  --title "Usuário" \
-                  --inputbox "Nome de usuário do RomM:" \
-                  $DLG_H $DLG_W \
-                  "" \
-                  2>"$CURR_TTY") || return 1
+    case "$method" in
 
-    pass=$(dialog --output-fd 1 --backtitle "$BACKTITLE" \
-                  --title "Senha" \
-                  --passwordbox "Senha do RomM:" \
-                  $DLG_H $DLG_W \
-                  "" \
-                  2>"$CURR_TTY") || return 1
+      # ----------------------------------------------------------------
+      # Opção 1: Importar do cartão SD
+      # O usuário cria /roms/rommsync_config.conf no PC antes de rodar
+      # ----------------------------------------------------------------
+      sd)
+        local import_info="Crie o arquivo no seu PC e copie para o\ncartão SD (pasta /roms):\n\n  Nome: rommsync_config.conf\n\n  Conteúdo:\n  ROMM_URL=\"http://SEU_IP:PORTA\"\n  ROMM_USER=\"usuario\"\n  ROMM_PASS=\"senha\""
+        dialog --backtitle "$BACKTITLE" \
+               --title "Importar do SD" \
+               --msgbox "$import_info\n\nDepos de salvar o arquivo, pressione OK." \
+               18 $DLG_W > "$CURR_TTY"
 
-    # Testa a conexão
+        # Procura o arquivo nas raízes de roms
+        local found_path=""
+        for root in /roms /roms2; do
+            if [ -f "${root}/rommsync_config.conf" ]; then
+                found_path="${root}/rommsync_config.conf"
+                break
+            fi
+        done
+        # Também aceita na raiz do SD
+        [ -z "$found_path" ] && [ -f "$SD_CONFIG_IMPORT" ] && found_path="$SD_CONFIG_IMPORT"
+
+        if [ -z "$found_path" ]; then
+            dialog --backtitle "$BACKTITLE" \
+                   --title "Arquivo não encontrado" \
+                   --msgbox "rommsync_config.conf não encontrado em:\n  /roms/ nem /roms2/\n\nCrie o arquivo no PC, coloque no SD e tente novamente." \
+                   $DLG_H $DLG_W > "$CURR_TTY"
+            return 1
+        fi
+
+        # Lê as variáveis do arquivo
+        local imp_url imp_user imp_pass
+        imp_url=$(grep  -m1 'ROMM_URL='  "$found_path" | cut -d= -f2- | tr -d '"' | xargs)
+        imp_user=$(grep -m1 'ROMM_USER=' "$found_path" | cut -d= -f2- | tr -d '"' | xargs)
+        imp_pass=$(grep -m1 'ROMM_PASS=' "$found_path" | cut -d= -f2- | tr -d '"' | xargs)
+
+        if [ -z "$imp_url" ] || [ -z "$imp_user" ]; then
+            dialog --backtitle "$BACKTITLE" \
+                   --title "Arquivo Inválido" \
+                   --msgbox "O arquivo não contém ROMM_URL e ROMM_USER.\nVerifique o formato e tente novamente." \
+                   $DLG_H $DLG_W > "$CURR_TTY"
+            return 1
+        fi
+
+        url="$imp_url"
+        user="$imp_user"
+        pass="$imp_pass"
+        log "Config importada de $found_path: url=$url user=$user"
+        ;;
+
+      # ----------------------------------------------------------------
+      # Opção 2: Digitar manualmente (requer teclado USB conectado)
+      # ----------------------------------------------------------------
+      manual)
+        url=$(dialog --output-fd 1 --backtitle "$BACKTITLE" \
+                     --title "URL do Servidor" \
+                     --inputbox "Digite a URL do RomM:\n(ex: http://192.168.1.100:3000)" \
+                     $DLG_H $DLG_W "http://" \
+                     2>"$CURR_TTY") || return 1
+
+        user=$(dialog --output-fd 1 --backtitle "$BACKTITLE" \
+                      --title "Usuário" \
+                      --inputbox "Nome de usuário do RomM:" \
+                      $DLG_H $DLG_W "" \
+                      2>"$CURR_TTY") || return 1
+
+        pass=$(dialog --output-fd 1 --backtitle "$BACKTITLE" \
+                      --title "Senha" \
+                      --passwordbox "Senha do RomM:" \
+                      $DLG_H $DLG_W "" \
+                      2>"$CURR_TTY") || return 1
+        ;;
+
+      # ----------------------------------------------------------------
+      # Opção 3: Instruções SSH
+      # ----------------------------------------------------------------
+      ssh)
+        local hostname_str
+        hostname_str=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "<IP-DO-CONSOLE>")
+        dialog --backtitle "$BACKTITLE" \
+               --title "Configurar via SSH" \
+               --msgbox "No seu PC, abra um terminal e execute:\n\n  ssh ark@${hostname_str}\n  (senha padrão: ark)\n\nDepois crie o arquivo de config:\n\n  nano ~/.rommsync.conf\n\nFormato:\n  ROMM_URL=\"http://IP:PORTA\"\n  ROMM_USER=\"usuario\"\n  ROMM_PASS=\"senha\"\n  ROMM_AUTH_B64=\"base64(user:pass)\"\n\nSalve (Ctrl+X) e relance o app." \
+               22 $DLG_W > "$CURR_TTY"
+        return 1  # volta ao menu para tentar novamente
+        ;;
+    esac
+
+    # --- Testa a conexão com os dados obtidos ----------------------------
     dialog --backtitle "$BACKTITLE" \
            --infobox "Testando conexão com o servidor..." \
            5 $DLG_W > "$CURR_TTY"
@@ -371,7 +455,7 @@ setup_config() {
 
     dialog --backtitle "$BACKTITLE" \
            --title "Sucesso" \
-           --msgbox "✓ Configuração salva com sucesso!\n\nServidor: $url\nUsuário: $user" \
+           --msgbox "✓ Configuração salva!\n\nServidor: $url\nUsuário:  $user" \
            $DLG_H $DLG_W > "$CURR_TTY"
 }
 
@@ -1196,6 +1280,89 @@ _cleanup_gptokeyb() {
     GPTOKEYB_PID=""
 }
 
+# --- Auto-update via GitHub -----------------------------------------------
+
+# _ver_gt v1 v2 → retorna 0 se v1 > v2 (comparação semântica)
+_ver_gt() {
+    [ "$(printf '%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ] && [ "$1" != "$2" ]
+}
+
+check_update() {
+    log "Verificando atualizações em $GITHUB_RAW ..."
+    dialog --backtitle "$BACKTITLE" \
+           --infobox "Verificando atualizações..." \
+           3 45 > "$CURR_TTY"
+
+    # Extrai versão do script no GitHub (linha: readonly VERSION="x.y.z")
+    local latest_ver
+    latest_ver=$(curl -sf --connect-timeout 6 --max-time 12 "$GITHUB_RAW" \
+                 | grep -m1 'readonly VERSION=' \
+                 | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' \
+                 | tr -d '"')
+
+    if [ -z "$latest_ver" ]; then
+        log "Auto-update: sem resposta do GitHub. Continuando."
+        return 0
+    fi
+
+    log "Auto-update: instalado=$VERSION  disponível=$latest_ver"
+
+    if ! _ver_gt "$latest_ver" "$VERSION"; then
+        dialog --backtitle "$BACKTITLE" \
+               --infobox "✓ Versão atual (v$VERSION) está atualizada." \
+               3 50 > "$CURR_TTY"
+        sleep 1
+        return 0
+    fi
+
+    # Há versão mais nova — pergunta ao usuário
+    dialog --backtitle "$BACKTITLE" \
+           --title "Atualização Disponível" \
+           --yesno "Nova versão encontrada!\n\n  Instalado:   v$VERSION\n  Disponível:  v$latest_ver\n\nDeseja atualizar agora?" \
+           11 $DLG_W > "$CURR_TTY"
+    [ $? -ne 0 ] && { log "Usuário recusou atualização."; return 0; }
+
+    dialog --backtitle "$BACKTITLE" \
+           --infobox "Baixando v$latest_ver do GitHub..." \
+           3 45 > "$CURR_TTY"
+
+    local tmp_new
+    tmp_new="${TMP_DIR}/RomMSync_update.sh"
+    mkdir -p "$TMP_DIR"
+
+    if ! curl -sf --connect-timeout 10 --max-time 60 "$GITHUB_RAW" -o "$tmp_new"; then
+        dialog --backtitle "$BACKTITLE" \
+               --title "Erro de Download" \
+               --msgbox "Falha ao baixar v$latest_ver.\nContinuando com v$VERSION." \
+               $DLG_H $DLG_W > "$CURR_TTY"
+        return 1
+    fi
+
+    # Valida sintaxe antes de instalar
+    if ! bash -n "$tmp_new" 2>/dev/null; then
+        dialog --backtitle "$BACKTITLE" \
+               --title "Erro" \
+               --msgbox "Arquivo baixado inválido.\nMantenha v$VERSION." \
+               $DLG_H $DLG_W > "$CURR_TTY"
+        rm -f "$tmp_new"
+        return 1
+    fi
+
+    chmod +x "$tmp_new"
+    local script_path
+    script_path=$(realpath "$0" 2>/dev/null || echo "$0")
+    sudo cp "$tmp_new" "$script_path" 2>/dev/null || cp "$tmp_new" "$script_path"
+    rm -f "$tmp_new"
+
+    dialog --backtitle "$BACKTITLE" \
+           --title "Atualizado!" \
+           --msgbox "✓ Atualizado para v$latest_ver!\n\nO aplicativo será reiniciado." \
+           $DLG_H $DLG_W > "$CURR_TTY"
+
+    log "Atualizado de v$VERSION para v$latest_ver. Re-executando..."
+    exec "$script_path" "$@"
+}
+
 # --- Ponto de Entrada -----------------------------------------------------
 
 main() {
@@ -1233,6 +1400,7 @@ main() {
 
     check_dependencies
     check_wifi
+    check_update
 
     # Configuração inicial se não existir
     if ! load_config; then
