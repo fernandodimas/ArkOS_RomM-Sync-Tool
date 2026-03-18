@@ -7,15 +7,21 @@
 
 set -euo pipefail
 
+# Garante terminal compatível com framebuffer do ArkOS (necessário para dialog)
+export TERM="${TERM:-linux}"
+
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.1.4"
+readonly VERSION="1.1.5"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly TMP_DIR="/tmp/rommsync"
 # Raízes onde o ArkOS armazena ROMs e saves
 # Podem estar em /roms OU /roms2 (segunda partição/SD)
 readonly ROMS_ROOTS=("/roms" "/roms2")
 readonly LOG_FILE="/tmp/rommsync.log"
+
+# PID do joy2key — preenchido em setup_controls()
+JOY2KEY_PID=""
 
 # Tamanho padrão para dialog em telas 640x480
 readonly DLG_H=15
@@ -1130,11 +1136,92 @@ main_menu() {
 }
 
 
+# --- Suporte a Controles (ArkOS / Handheld) --------------------------------
+
+# setup_controls
+# Inicia o daemon joy2key para mapear os botões do controle em eventos de
+# teclado que o dialog consegue ler. Detecta automaticamente o joystick
+# disponível e o caminho do executável joy2key.
+#
+# Mapeamento padrão (layout ArkOS/Anbernic):
+#   D-Pad        → Setas ↑↓←→
+#   A            → Enter   (confirmar / selecionar)
+#   B            → Escape  (cancelar / voltar)
+#   X            → Espaço  (toggle em checklists)
+#   Y            → Tab     (navegar entre campos)
+#   L1           → Page Up
+#   R1           → Page Down
+#   L2 / R2      → (ignorados)
+#   Select       → Tab
+#   Start        → Enter
+setup_controls() {
+    # Procura o executável joy2key em caminhos comuns do ArkOS
+    local joy2key=""
+    local candidates=(
+        "/usr/bin/joy2key"
+        "/opt/joy2key/joy2key"
+        "/home/ark/.local/bin/joy2key"
+        "/usr/local/bin/joy2key"
+    )
+    for p in "${candidates[@]}"; do
+        [ -x "$p" ] && { joy2key="$p"; break; }
+    done
+
+    if [ -z "$joy2key" ]; then
+        log "AVISO: joy2key não encontrado — controles via teclado apenas."
+        return 0
+    fi
+
+    # Detecta o primeiro joystick disponível
+    local jsdev=""
+    for dev in /dev/input/js0 /dev/input/js1; do
+        [ -c "$dev" ] && { jsdev="$dev"; break; }
+    done
+
+    if [ -z "$jsdev" ]; then
+        log "AVISO: Nenhum joystick detectado em /dev/input/js* — controles via teclado apenas."
+        return 0
+    fi
+
+    # Inicia joy2key em background
+    # -axis 0  → eixo horizontal: Left / Right
+    # -axis 1  → eixo vertical:   Up   / Down
+    # -thresh  → limiar para considerar eixo ativado (evita drift)
+    # -buttons → botões 0..9 mapeados para teclas
+    #            0=A  1=B  2=X  3=Y  4=L1  5=R1  6=L2  7=R2  8=Select  9=Start
+    "$joy2key" "$jsdev" \
+        -axis 0 Left Right \
+        -axis 1 Up Down \
+        -thresh -16384 16383 \
+        -buttons Return Escape space Tab Prior Next "" "" Tab Return \
+        >/dev/null 2>&1 &
+    JOY2KEY_PID=$!
+
+    log "joy2key iniciado: PID=$JOY2KEY_PID  joystick=$jsdev"
+}
+
+# cleanup_controls
+# Encerra o daemon joy2key iniciado por setup_controls().
+cleanup_controls() {
+    if [ -n "$JOY2KEY_PID" ] && kill -0 "$JOY2KEY_PID" 2>/dev/null; then
+        kill "$JOY2KEY_PID" 2>/dev/null
+        wait "$JOY2KEY_PID" 2>/dev/null || true
+        log "joy2key encerrado (PID=$JOY2KEY_PID)."
+    fi
+    JOY2KEY_PID=""
+}
+
 # --- Ponto de Entrada -----------------------------------------------------
 
 main() {
     ensure_tmp
     log "=== $SCRIPT_NAME v$VERSION iniciado ==="
+
+    # Inicializa mapeamento de controles antes de qualquer dialog
+    setup_controls
+
+    # Registra limpeza para qualquer forma de saída
+    trap 'cleanup_controls; clear; log "=== Encerrado ==="' EXIT INT TERM
 
     check_dependencies
     check_wifi
@@ -1157,10 +1244,6 @@ main() {
     fi
 
     main_menu
-
-    clear
-    echo "$SCRIPT_NAME encerrado."
-    log "=== Encerrado pelo usuário ==="
 }
 
 main "$@"
