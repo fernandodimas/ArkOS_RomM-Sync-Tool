@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.1.5"
+readonly VERSION="1.1.6"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly TMP_DIR="/tmp/rommsync"
 # Raízes onde o ArkOS armazena ROMs e saves
@@ -20,12 +20,15 @@ readonly TMP_DIR="/tmp/rommsync"
 readonly ROMS_ROOTS=("/roms" "/roms2")
 readonly LOG_FILE="/tmp/rommsync.log"
 
-# PID do joy2key — preenchido em setup_controls()
-JOY2KEY_PID=""
+# PID do daemon de controles
+GPTOKEYB_PID=""
 
 # Tamanho padrão para dialog em telas 640x480
 readonly DLG_H=15
 readonly DLG_W=55
+
+# Backtitle global com versão — aparece no topo de TODOS os dialogs
+BACKTITLE="$SCRIPT_NAME  v$VERSION"
 
 # Mapeamento: slug do RomM → pasta do ArkOS
 # Formato: "romm-slug|arkos-folder"
@@ -148,7 +151,7 @@ check_dependencies() {
 
         if command -v dialog &>/dev/null; then
             # Mostra quais pacotes faltam e pergunta se quer instalar
-            dialog --backtitle "$SCRIPT_NAME" \
+            dialog --backtitle "$BACKTITLE" \
                    --title "⚠  Dependências Ausentes" \
                    --cr-wrap \
                    --yesno "$(printf '%b' "$status_lines")\n\nPacotes necessários: $pkg_list\n\nDeseja instalar agora via opkg?" \
@@ -157,7 +160,7 @@ check_dependencies() {
 
             if [ "$resp" -eq 0 ]; then
                 # Usuário escolheu instalar
-                dialog --backtitle "$SCRIPT_NAME" \
+                dialog --backtitle "$BACKTITLE" \
                        --title "Instalando Dependências" \
                        --infobox "Executando: opkg update...\nAguarde..." \
                        7 $DLG_W
@@ -168,7 +171,7 @@ check_dependencies() {
                     opkg update 2>&1
                     opkg install $pkg_list 2>&1
                 } | tee "$log_tmp" | \
-                dialog --backtitle "$SCRIPT_NAME" \
+                dialog --backtitle "$BACKTITLE" \
                        --title "Instalando Dependências" \
                        --programbox "Saída do opkg:" \
                        20 $DLG_W
@@ -180,13 +183,13 @@ check_dependencies() {
                 done
 
                 if [ ${#still_missing[@]} -eq 0 ]; then
-                    dialog --backtitle "$SCRIPT_NAME" \
+                    dialog --backtitle "$BACKTITLE" \
                            --title "Instalação Concluída" \
                            --msgbox "✓ Dependências instaladas com sucesso!\n\nO script continuará normalmente." \
                            $DLG_H $DLG_W
                     # Continua execução normal
                 else
-                    dialog --backtitle "$SCRIPT_NAME" \
+                    dialog --backtitle "$BACKTITLE" \
                            --title "Erro na Instalação" \
                            --msgbox "✗ Ainda faltam: ${still_missing[*]}\n\nVeja o log em:\n$log_tmp\n\nO script será encerrado." \
                            $DLG_H $DLG_W
@@ -195,7 +198,7 @@ check_dependencies() {
                 fi
             else
                 # Usuário escolheu não instalar / pressionou Não
-                dialog --backtitle "$SCRIPT_NAME" \
+                dialog --backtitle "$BACKTITLE" \
                        --title "Encerrando" \
                        --msgbox "Instalação cancelada.\n\nInstale manualmente quando quiser:\n  opkg update\n  opkg install $pkg_list" \
                        $DLG_H $DLG_W
@@ -222,7 +225,7 @@ check_wifi() {
     log "Verificando conectividade Wi-Fi..."
     if ! ping -c 1 -W 3 8.8.8.8 &>/dev/null && \
        ! ping -c 1 -W 3 1.1.1.1 &>/dev/null; then
-        dialog --backtitle "$SCRIPT_NAME" \
+        dialog --backtitle "$BACKTITLE" \
                --title "Sem Conexão" \
                --msgbox "⚠  Wi-Fi não detectado.\n\nConecte o console à rede Wi-Fi antes\nde usar o RomM-Sync-Tool." \
                $DLG_H $DLG_W
@@ -266,26 +269,26 @@ EOF
 setup_config() {
     local url user pass confirm
 
-    dialog --backtitle "$SCRIPT_NAME" \
+    dialog --backtitle "$BACKTITLE" \
            --title "Configuração Inicial" \
            --msgbox "Bem-vindo ao $SCRIPT_NAME v$VERSION!\n\nVamos configurar a conexão com seu servidor RomM." \
            $DLG_H $DLG_W
 
-    url=$(dialog --backtitle "$SCRIPT_NAME" \
+    url=$(dialog --backtitle "$BACKTITLE" \
                  --title "URL do Servidor" \
                  --inputbox "Digite a URL do RomM:\n(ex: http://192.168.1.100:3000)" \
                  $DLG_H $DLG_W \
                  "http://" \
                  3>&1 1>&2 2>&3) || return 1
 
-    user=$(dialog --backtitle "$SCRIPT_NAME" \
+    user=$(dialog --backtitle "$BACKTITLE" \
                   --title "Usuário" \
                   --inputbox "Nome de usuário do RomM:" \
                   $DLG_H $DLG_W \
                   "" \
                   3>&1 1>&2 2>&3) || return 1
 
-    pass=$(dialog --backtitle "$SCRIPT_NAME" \
+    pass=$(dialog --backtitle "$BACKTITLE" \
                   --title "Senha" \
                   --passwordbox "Senha do RomM:" \
                   $DLG_H $DLG_W \
@@ -293,7 +296,7 @@ setup_config() {
                   3>&1 1>&2 2>&3) || return 1
 
     # Testa a conexão
-    dialog --backtitle "$SCRIPT_NAME" \
+    dialog --backtitle "$BACKTITLE" \
            --infobox "Testando conexão com o servidor..." \
            5 $DLG_W
 
@@ -306,7 +309,7 @@ setup_config() {
                      "${url%/}/api/heartbeat" 2>/dev/null || echo "000")
 
     if [ "$http_code" != "200" ]; then
-        dialog --backtitle "$SCRIPT_NAME" \
+        dialog --backtitle "$BACKTITLE" \
                --title "Erro de Conexão" \
                --yesno "Não foi possível conectar (HTTP $http_code).\n\nDeseja salvar a configuração mesmo assim?" \
                $DLG_H $DLG_W || return 1
@@ -314,7 +317,7 @@ setup_config() {
 
     save_config "$url" "$user" "$pass"
 
-    dialog --backtitle "$SCRIPT_NAME" \
+    dialog --backtitle "$BACKTITLE" \
            --title "Sucesso" \
            --msgbox "✓ Configuração salva com sucesso!\n\nServidor: $url\nUsuário: $user" \
            $DLG_H $DLG_W
@@ -465,7 +468,7 @@ EOF
     while IFS= read -r pct; do
         echo "$pct"
     done | \
-    dialog --backtitle "$SCRIPT_NAME" \
+    dialog --backtitle "$BACKTITLE" \
            --title "Enviando (rclone)..." \
            --gauge "$label" \
            7 $DLG_W 0 || exit_code=$?
@@ -548,7 +551,7 @@ backup_saves() {
     ensure_tmp
     log "Iniciando backup de saves..."
 
-    dialog --backtitle "$SCRIPT_NAME" \
+    dialog --backtitle "$BACKTITLE" \
            --infobox "Buscando saves em ${ROMS_ROOTS[*]}..." \
            5 $DLG_W
 
@@ -564,7 +567,7 @@ backup_saves() {
     done < <(collect_saves_index)
 
     if [ "$idx" -eq 0 ]; then
-        dialog --backtitle "$SCRIPT_NAME" \
+        dialog --backtitle "$BACKTITLE" \
                --title "Backup de Saves" \
                --msgbox "Nenhum save encontrado em:\n${ROMS_ROOTS[*]}\n\nExtensões buscadas: .srm .state .sav" \
                $DLG_H $DLG_W
@@ -582,7 +585,7 @@ backup_saves() {
     done
 
     local choice
-    choice=$(dialog --backtitle "$SCRIPT_NAME" \
+    choice=$(dialog --backtitle "$BACKTITLE" \
                     --title "Backup de Saves" \
                     --menu "Selecione o console para backup:" \
                     $DLG_H $DLG_W 10 \
@@ -611,7 +614,7 @@ backup_saves() {
         local console_dir="${root}/${console}"
         local zip_file="${TMP_DIR}/saves_${console}_$(date '+%Y%m%d_%H%M%S').zip"
 
-        echo "$pct" | dialog --backtitle "$SCRIPT_NAME" \
+        echo "$pct" | dialog --backtitle "$BACKTITLE" \
                               --title "Backup: $console" \
                               --gauge "Compactando saves de '$console'..." \
                               7 $DLG_W 0
@@ -641,7 +644,7 @@ backup_saves() {
             continue
         fi
 
-        echo "$pct" | dialog --backtitle "$SCRIPT_NAME" \
+        echo "$pct" | dialog --backtitle "$BACKTITLE" \
                               --title "Backup: $console" \
                               --gauge "Enviando '$console' para o RomM..." \
                               7 $DLG_W "$pct"
@@ -659,7 +662,7 @@ backup_saves() {
         rm -f "$zip_file"
     done
 
-    echo "100" | dialog --backtitle "$SCRIPT_NAME" \
+    echo "100" | dialog --backtitle "$BACKTITLE" \
                          --title "Backup" \
                          --gauge "Concluído!" \
                          7 $DLG_W 100
@@ -669,7 +672,7 @@ backup_saves() {
     summary+="Enviados: $ok_count console(s)\n"
     [ "$fail_count" -gt 0 ] && summary+="Falhas:   $fail_count (veja o log)"
 
-    dialog --backtitle "$SCRIPT_NAME" \
+    dialog --backtitle "$BACKTITLE" \
            --title "Backup Concluído" \
            --msgbox "$summary" \
            $DLG_H $DLG_W
@@ -706,7 +709,7 @@ romm_slug_to_arkos() {
 }
 
 list_platforms() {
-    dialog --backtitle "$SCRIPT_NAME" \
+    dialog --backtitle "$BACKTITLE" \
            --infobox "Carregando plataformas do RomM..." \
            5 $DLG_W
 
@@ -714,7 +717,7 @@ list_platforms() {
     response=$(api_get "/api/platforms")
 
     if [ -z "$response" ] || echo "$response" | grep -q '"detail"'; then
-        dialog --backtitle "$SCRIPT_NAME" \
+        dialog --backtitle "$BACKTITLE" \
                --title "Erro" \
                --msgbox "Erro ao carregar plataformas:\n$(echo "$response" | jq -r '.detail // "Sem resposta do servidor"' 2>/dev/null)" \
                $DLG_H $DLG_W
@@ -731,7 +734,7 @@ list_platforms() {
     local platform_count
     platform_count=$(echo "$response" | jq '. | length' 2>/dev/null || echo 0)
     if [ "$platform_count" = "0" ]; then
-        dialog --backtitle "$SCRIPT_NAME" \
+        dialog --backtitle "$BACKTITLE" \
                --title "Aviso" \
                --msgbox "Nenhuma plataforma encontrada no servidor." \
                $DLG_H $DLG_W
@@ -763,7 +766,7 @@ list_platforms() {
     )
 
     if [ ${#menu_entries[@]} -eq 0 ]; then
-        dialog --backtitle "$SCRIPT_NAME" \
+        dialog --backtitle "$BACKTITLE" \
                --title "Aviso" \
                --msgbox "Falha ao processar lista de plataformas." \
                $DLG_H $DLG_W
@@ -771,7 +774,7 @@ list_platforms() {
     fi
 
     local choice
-    choice=$(dialog --backtitle "$SCRIPT_NAME" \
+    choice=$(dialog --backtitle "$BACKTITLE" \
                     --title "Selecionar Plataforma" \
                     --menu "Escolha uma plataforma:" \
                     $DLG_H $DLG_W 8 \
@@ -799,7 +802,7 @@ list_games() {
     local platform_slug="$2"
     local platform_name="$3"
 
-    dialog --backtitle "$SCRIPT_NAME" \
+    dialog --backtitle "$BACKTITLE" \
            --infobox "Carregando jogos de '$platform_name'..." \
            5 $DLG_W
 
@@ -807,7 +810,7 @@ list_games() {
     response=$(api_get "/api/roms?platform_id=${platform_id}&limit=200&offset=0")
 
     if [ -z "$response" ] || echo "$response" | grep -q '"detail"'; then
-        dialog --backtitle "$SCRIPT_NAME" \
+        dialog --backtitle "$BACKTITLE" \
                --title "Erro" \
                --msgbox "Erro ao carregar jogos:\n$(echo "$response" | jq -r '.detail // "Sem resposta"' 2>/dev/null)" \
                $DLG_H $DLG_W
@@ -819,7 +822,7 @@ list_games() {
     total=$(echo "$response" | jq '.items | length' 2>/dev/null || echo "0")
 
     if [ "$total" = "0" ]; then
-        dialog --backtitle "$SCRIPT_NAME" \
+        dialog --backtitle "$BACKTITLE" \
                --title "Aviso" \
                --msgbox "Nenhum jogo encontrado para '$platform_name'." \
                $DLG_H $DLG_W
@@ -867,7 +870,7 @@ list_games() {
     )
 
     local choice
-    choice=$(dialog --backtitle "$SCRIPT_NAME" \
+    choice=$(dialog --backtitle "$BACKTITLE" \
                     --title "$platform_name ($total jogos)" \
                     --menu "Selecione o jogo para baixar:" \
                     $DLG_H $DLG_W 8 \
@@ -911,7 +914,7 @@ download_rom() {
 
     # Verifica se já existe
     if [ -f "$dest_file" ]; then
-        dialog --backtitle "$SCRIPT_NAME" \
+        dialog --backtitle "$BACKTITLE" \
                --title "Arquivo Existente" \
                --yesno "O arquivo já existe:\n${dest_file}\n\nDeseja substituir?" \
                $DLG_H $DLG_W || return
@@ -936,7 +939,7 @@ download_rom() {
         while IFS= read -r pct; do
             echo "$pct"
         done
-    ) | dialog --backtitle "$SCRIPT_NAME" \
+    ) | dialog --backtitle "$BACKTITLE" \
                --title "Baixando..." \
                --gauge "Baixando: ${rom_name:0:40}\n\nDestino: $dest_dir/" \
                9 $DLG_W 0
@@ -947,7 +950,7 @@ download_rom() {
         mv "$tmp_file" "$dest_file"
         log "Download concluído: $dest_file"
 
-        dialog --backtitle "$SCRIPT_NAME" \
+        dialog --backtitle "$BACKTITLE" \
                --title "Download Concluído" \
                --msgbox "✓ Jogo baixado com sucesso!\n\n$rom_name\n\nSalvo em:\n$dest_file" \
                $DLG_H $DLG_W
@@ -955,7 +958,7 @@ download_rom() {
         rm -f "$tmp_file"
         log "ERRO: Falha no download de $rom_name"
 
-        dialog --backtitle "$SCRIPT_NAME" \
+        dialog --backtitle "$BACKTITLE" \
                --title "Erro no Download" \
                --msgbox "✗ Falha ao baixar:\n$rom_name\n\nVerifique o log em:\n$LOG_FILE" \
                $DLG_H $DLG_W
@@ -965,7 +968,7 @@ download_rom() {
 # --- Configurações Via Menu -----------------------------------------------
 
 reconfigure() {
-    dialog --backtitle "$SCRIPT_NAME" \
+    dialog --backtitle "$BACKTITLE" \
            --title "Reconfigurar" \
            --yesno "Deseja reconfigurar a conexão com o servidor RomM?\n\nAs configurações atuais serão substituídas." \
            $DLG_H $DLG_W || return
@@ -988,12 +991,12 @@ show_status() {
             *) server_status="✗ HTTP $http_code" ;;
         esac
 
-        dialog --backtitle "$SCRIPT_NAME" \
+        dialog --backtitle "$BACKTITLE" \
                --title "Status da Conexão" \
                --msgbox "Servidor:  $ROMM_URL\nUsuário:   $ROMM_USER\nStatus:    $server_status\n\nLog: $LOG_FILE" \
                $DLG_H $DLG_W
     else
-        dialog --backtitle "$SCRIPT_NAME" \
+        dialog --backtitle "$BACKTITLE" \
                --title "Status" \
                --msgbox "Nenhuma configuração encontrada.\n\nExecute a configuração inicial primeiro." \
                $DLG_H $DLG_W
@@ -1015,7 +1018,7 @@ self_update() {
     SELF=$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0")
     local TMP_NEW="${TMP_DIR}/RomMSync_new.sh"
 
-    dialog --backtitle "$SCRIPT_NAME" \
+    dialog --backtitle "$BACKTITLE" \
            --infobox "Verificando atualização em GitHub..." \
            5 $DLG_W
 
@@ -1023,7 +1026,7 @@ self_update() {
 
     # Baixa nova versão
     if ! wget -q -O "$TMP_NEW" "$RAW_URL" 2>/dev/null; then
-        dialog --backtitle "$SCRIPT_NAME" \
+        dialog --backtitle "$BACKTITLE" \
                --title "Erro" \
                --msgbox "✗ Falha ao conectar ao GitHub.\nVerifique sua conexão Wi-Fi." \
                $DLG_H $DLG_W
@@ -1032,7 +1035,7 @@ self_update() {
     fi
 
     if [ ! -s "$TMP_NEW" ]; then
-        dialog --backtitle "$SCRIPT_NAME" \
+        dialog --backtitle "$BACKTITLE" \
                --title "Erro" \
                --msgbox "✗ Arquivo baixado está vazio." \
                $DLG_H $DLG_W
@@ -1046,7 +1049,7 @@ self_update() {
                  | sed 's/.*VERSION="\([^"]*\)".*/\1/' 2>/dev/null || echo "?")
 
     if [ "$remote_ver" = "$VERSION" ]; then
-        dialog --backtitle "$SCRIPT_NAME" \
+        dialog --backtitle "$BACKTITLE" \
                --title "Sem atualizações" \
                --msgbox "✓ Você já está na versão mais recente!\n\nVersão atual: $VERSION" \
                $DLG_H $DLG_W
@@ -1055,7 +1058,7 @@ self_update() {
     fi
 
     # Pede confirmação antes de sobrescrever
-    dialog --backtitle "$SCRIPT_NAME" \
+    dialog --backtitle "$BACKTITLE" \
            --title "Atualização Disponível" \
            --yesno "Nova versão encontrada!\n\nAtual:  v$VERSION\nNova:   v$remote_ver\n\nDeseja atualizar agora?" \
            $DLG_H $DLG_W || {
@@ -1071,7 +1074,7 @@ self_update() {
     # Substitui o script e garante permissão de execução
     if mv -f "$TMP_NEW" "$SELF" && chmod +x "$SELF"; then
         log "Script atualizado para v$remote_ver com sucesso."
-        dialog --backtitle "$SCRIPT_NAME" \
+        dialog --backtitle "$BACKTITLE" \
                --title "Atualização Concluída" \
                --msgbox "✓ Script atualizado para v$remote_ver!\n\nBackup salvo em:\n$backup_file\n\nO script será encerrado para aplicar a atualização." \
                $DLG_H $DLG_W
@@ -1079,7 +1082,7 @@ self_update() {
         exit 0
     else
         log "ERRO: Falha ao substituir o script."
-        dialog --backtitle "$SCRIPT_NAME" \
+        dialog --backtitle "$BACKTITLE" \
                --title "Erro" \
                --msgbox "✗ Falha ao gravar a nova versão.\nVerifique permissões em:\n$SELF" \
                $DLG_H $DLG_W
@@ -1113,12 +1116,12 @@ main_menu() {
             4) show_status ;;
             5)
                 if [ -f "$LOG_FILE" ]; then
-                    dialog --backtitle "$SCRIPT_NAME" \
+                    dialog --backtitle "$BACKTITLE" \
                            --title "Log" \
                            --textbox "$LOG_FILE" \
                            $DLG_H $DLG_W
                 else
-                    dialog --backtitle "$SCRIPT_NAME" \
+                    dialog --backtitle "$BACKTITLE" \
                            --title "Log" \
                            --msgbox "Nenhum log disponível ainda." \
                            $DLG_H $DLG_W
@@ -1126,7 +1129,7 @@ main_menu() {
                 ;;
             6) self_update ;;
             7)
-                dialog --backtitle "$SCRIPT_NAME" \
+                dialog --backtitle "$BACKTITLE" \
                        --title "Sair" \
                        --yesno "Deseja sair do $SCRIPT_NAME?" \
                        7 $DLG_W && break
@@ -1138,77 +1141,111 @@ main_menu() {
 
 # --- Suporte a Controles (ArkOS / Handheld) --------------------------------
 
+# Diretório do próprio script (usado para localizar o .gptk)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 # setup_controls
-# Inicia o daemon joy2key para mapear os botões do controle em eventos de
-# teclado que o dialog consegue ler. Detecta automaticamente o joystick
-# disponível e o caminho do executável joy2key.
+# Tenta iniciar o mapeamento controle→teclado na ordem:
+#   1. gptokeyb2  (ArkOS moderno, RG35XX, RG353, etc.)
+#   2. gptokeyb   (ArkOS legado)
+#   3. joy2key    (alternativa antiga)
+# Se nenhum estiver disponível, o script continua em modo só-teclado.
 #
-# Mapeamento padrão (layout ArkOS/Anbernic):
-#   D-Pad        → Setas ↑↓←→
-#   A            → Enter   (confirmar / selecionar)
-#   B            → Escape  (cancelar / voltar)
-#   X            → Espaço  (toggle em checklists)
-#   Y            → Tab     (navegar entre campos)
-#   L1           → Page Up
-#   R1           → Page Down
-#   L2 / R2      → (ignorados)
-#   Select       → Tab
-#   Start        → Enter
+# Mapeamento (.gptk):
+#   D-Pad  → Setas ↑↓←→
+#   A      → Enter   (confirmar)
+#   B      → Escape  (cancelar / voltar)
+#   X      → Espaço  (toggle)
+#   Y      → Tab     (campo seguinte)
+#   L1/R1  → PgUp/PgDn
+#   Start  → Enter
+#   Select → Tab
 setup_controls() {
-    # Procura o executável joy2key em caminhos comuns do ArkOS
-    local joy2key=""
+    local gptk_file="$SCRIPT_DIR/.rommsync.gptk"
+
+    # Gera o arquivo de mapeamento para gptokeyb
+    cat > "$gptk_file" <<'GPTK'
+[config]
+mouse_support = false
+
+[keys]
+up = up
+down = down
+left = left
+right = right
+a = return
+b = escape
+x = space
+y = tab
+l1 = pageup
+r1 = pagedown
+l2 =
+r2 =
+start = return
+select = tab
+GPTK
+
+    # Procura gptokeyb2, gptokeyb ou joy2key (nessa ordem)
+    local tool="" tool_path=""
     local candidates=(
-        "/usr/bin/joy2key"
-        "/opt/joy2key/joy2key"
-        "/home/ark/.local/bin/joy2key"
-        "/usr/local/bin/joy2key"
+        "gptokeyb2:/usr/bin/gptokeyb2"
+        "gptokeyb2:/usr/local/bin/gptokeyb2"
+        "gptokeyb:/usr/bin/gptokeyb"
+        "gptokeyb:/usr/local/bin/gptokeyb"
+        "joy2key:/usr/bin/joy2key"
+        "joy2key:/opt/joy2key/joy2key"
     )
-    for p in "${candidates[@]}"; do
-        [ -x "$p" ] && { joy2key="$p"; break; }
+    for entry in "${candidates[@]}"; do
+        tool="${entry%%:*}"
+        tool_path="${entry##*:}"
+        [ -x "$tool_path" ] && break
+        tool="" tool_path=""
     done
 
-    if [ -z "$joy2key" ]; then
-        log "AVISO: joy2key não encontrado — controles via teclado apenas."
+    if [ -z "$tool_path" ]; then
+        log "AVISO: gptokeyb/joy2key não encontrado — navegue via teclado (SSH)."
         return 0
     fi
 
-    # Detecta o primeiro joystick disponível
-    local jsdev=""
-    for dev in /dev/input/js0 /dev/input/js1; do
-        [ -c "$dev" ] && { jsdev="$dev"; break; }
-    done
-
-    if [ -z "$jsdev" ]; then
-        log "AVISO: Nenhum joystick detectado em /dev/input/js* — controles via teclado apenas."
-        return 0
-    fi
-
-    # Inicia joy2key em background
-    # -axis 0  → eixo horizontal: Left / Right
-    # -axis 1  → eixo vertical:   Up   / Down
-    # -thresh  → limiar para considerar eixo ativado (evita drift)
-    # -buttons → botões 0..9 mapeados para teclas
-    #            0=A  1=B  2=X  3=Y  4=L1  5=R1  6=L2  7=R2  8=Select  9=Start
-    "$joy2key" "$jsdev" \
-        -axis 0 Left Right \
-        -axis 1 Up Down \
-        -thresh -16384 16383 \
-        -buttons Return Escape space Tab Prior Next "" "" Tab Return \
-        >/dev/null 2>&1 &
-    JOY2KEY_PID=$!
-
-    log "joy2key iniciado: PID=$JOY2KEY_PID  joystick=$jsdev"
+    case "$tool" in
+        gptokeyb2|gptokeyb)
+            # gptokeyb lê o processo-alvo pelo nome do binário em execução;
+            # para scripts shell usamos o nome genérico "dialog"
+            "$tool_path" "dialog" -c "$gptk_file" >/dev/null 2>&1 &
+            GPTOKEYB_PID=$!
+            log "$tool iniciado: PID=$GPTOKEYB_PID  config=$gptk_file"
+            ;;
+        joy2key)
+            # Detecta o primeiro joystick disponível
+            local jsdev=""
+            for dev in /dev/input/js0 /dev/input/js1; do
+                [ -c "$dev" ] && { jsdev="$dev"; break; }
+            done
+            if [ -z "$jsdev" ]; then
+                log "AVISO: Nenhum /dev/input/js* detectado."
+                return 0
+            fi
+            "$tool_path" "$jsdev" \
+                -axis 0 Left Right \
+                -axis 1 Up Down \
+                -thresh -16384 16383 \
+                -buttons Return Escape space Tab Prior Next "" "" Tab Return \
+                >/dev/null 2>&1 &
+            GPTOKEYB_PID=$!
+            log "joy2key iniciado: PID=$GPTOKEYB_PID  joystick=$jsdev"
+            ;;
+    esac
 }
 
 # cleanup_controls
-# Encerra o daemon joy2key iniciado por setup_controls().
+# Encerra o daemon de controles.
 cleanup_controls() {
-    if [ -n "$JOY2KEY_PID" ] && kill -0 "$JOY2KEY_PID" 2>/dev/null; then
-        kill "$JOY2KEY_PID" 2>/dev/null
-        wait "$JOY2KEY_PID" 2>/dev/null || true
-        log "joy2key encerrado (PID=$JOY2KEY_PID)."
+    if [ -n "$GPTOKEYB_PID" ] && kill -0 "$GPTOKEYB_PID" 2>/dev/null; then
+        kill "$GPTOKEYB_PID" 2>/dev/null
+        wait "$GPTOKEYB_PID" 2>/dev/null || true
+        log "Daemon de controles encerrado (PID=$GPTOKEYB_PID)."
     fi
-    JOY2KEY_PID=""
+    GPTOKEYB_PID=""
 }
 
 # --- Ponto de Entrada -----------------------------------------------------
@@ -1228,12 +1265,12 @@ main() {
 
     # Configuração inicial se não existir
     if ! load_config; then
-        dialog --backtitle "$SCRIPT_NAME" \
+        dialog --backtitle "$BACKTITLE" \
                --title "Primeira Execução" \
                --msgbox "Configuração não encontrada.\nVamos configurar o servidor RomM agora." \
                $DLG_H $DLG_W
         setup_config || {
-            dialog --backtitle "$SCRIPT_NAME" \
+            dialog --backtitle "$BACKTITLE" \
                    --title "Cancelado" \
                    --msgbox "Configuração cancelada. O script será encerrado." \
                    $DLG_H $DLG_W
