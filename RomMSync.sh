@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.2.4"
+readonly VERSION="1.2.5"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly TMP_DIR="/tmp/rommsync"
 # Raízes onde o ArkOS armazena ROMs e saves
@@ -193,7 +193,9 @@ check_dependencies() {
                 local log_tmp="${TMP_DIR}/pkg_install.log"
                 mkdir -p "$TMP_DIR"
                 {
-                    $pkg_update 2>&1
+                    # Conserta dpkg interrompido (caso exista estado pendente)
+                    sudo dpkg --configure -a 2>&1 || true
+                    $pkg_update 2>&1 || true   # falha de rede não é fatal
                     $pkg_install $pkg_list 2>&1
                 } | tee "$log_tmp" | \
                 dialog --backtitle "$BACKTITLE" \
