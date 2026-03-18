@@ -9,11 +9,12 @@ set -euo pipefail
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.0"
+readonly VERSION="1.1.2"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly TMP_DIR="/tmp/rommsync"
-readonly ROMS_BASE="/roms"
-readonly SAVES_BASE="/roms/saves"
+# Raízes onde o ArkOS armazena ROMs e saves
+# Podem estar em /roms OU /roms2 (segunda partição/SD)
+readonly ROMS_ROOTS=("/roms" "/roms2")
 readonly LOG_FILE="/tmp/rommsync.log"
 
 # Tamanho padrão para dialog em telas 640x480
@@ -441,121 +442,174 @@ smart_upload() {
 
 # --- Backup de Saves ------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# collect_saves_index
+# Percorre ROMS_ROOTS (/roms e /roms2) buscando saves de forma recursiva.
+# Os saves podem estar:
+#   - Na raiz da pasta do console:  /roms/snes/JogoA.srm
+#   - Em subpastas dentro do console: /roms/snes/JogoA/JogoA.state
+#
+# Saída (stdout): linhas no formato "root|console|count"
+#   Ex: /roms|snes|3
+#       /roms2|psx|1
+# ---------------------------------------------------------------------------
+collect_saves_index() {
+    local root console count
+    for root in "${ROMS_ROOTS[@]}"; do
+        [ -d "$root" ] || continue
+        # Cada subpasta direta de $root é um console
+        while IFS= read -r -d '' console_dir; do
+            console=$(basename "$console_dir")
+            # Busca saves recursivamente até 3 níveis abaixo do console
+            # (console/save.srm  ou  console/subpasta/save.srm)
+            count=$(find "$console_dir" \
+                        -mindepth 1 -maxdepth 3 -type f \
+                        \( -name "*.srm" \
+                           -o -name "*.state" \
+                           -o -name "*.state[0-9]*" \
+                           -o -name "*.sav" \) \
+                        2>/dev/null | wc -l | tr -d ' ')
+            if [ "${count:-0}" -gt 0 ]; then
+                printf '%s|%s|%s\n' "$root" "$console" "$count"
+            fi
+        done < <(find "$root" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
+    done
+}
+
+# ---------------------------------------------------------------------------
+# backup_saves
+# Menu para selecionar console(s) e fazer backup dos saves encontrados
+# pela collect_saves_index. O zip preserva a estrutura de pastas relativa
+# para que o RomM identifique a qual console cada save pertence.
+# ---------------------------------------------------------------------------
 backup_saves() {
     ensure_tmp
     log "Iniciando backup de saves..."
 
-    # Lista pastas de saves disponíveis
-    local systems=()
-    local entries=()
+    dialog --backtitle "$SCRIPT_NAME" \
+           --infobox "Buscando saves em ${ROMS_ROOTS[*]}..." \
+           5 $DLG_W
+
+    # ── Constrói índice: arrays paralelos root[] / console[] / count[] ────────
+    local -a idx_root idx_console idx_count
     local idx=0
 
-    while IFS= read -r -d '' dir; do
-        local sysname
-        sysname=$(basename "$dir")
-        # Verifica se há saves nessa pasta
-        local count
-        count=$(find "$dir" -name "*.srm" -o -name "*.state" -o \
-                               -name "*.state*" -o -name "*.sav" \
-                               2>/dev/null | wc -l)
-        if [ "$count" -gt 0 ]; then
-            systems+=("$sysname")
-            idx=$((idx + 1))
-            entries+=("$idx" "$sysname ($count saves)")
-        fi
-    done < <(find "$SAVES_BASE" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
+    while IFS='|' read -r r c n; do
+        idx_root[$idx]="$r"
+        idx_console[$idx]="$c"
+        idx_count[$idx]="$n"
+        idx=$((idx + 1))
+    done < <(collect_saves_index)
 
-    if [ ${#systems[@]} -eq 0 ]; then
+    if [ "$idx" -eq 0 ]; then
         dialog --backtitle "$SCRIPT_NAME" \
                --title "Backup de Saves" \
-               --msgbox "Nenhuma pasta de saves encontrada em:\n$SAVES_BASE" \
+               --msgbox "Nenhum save encontrado em:\n${ROMS_ROOTS[*]}\n\nExtensões buscadas: .srm .state .sav" \
                $DLG_H $DLG_W
         return
     fi
 
-    # Adiciona opção "Todos"
-    local menu_entries=("0" "★ Todos os sistemas")
-    for i in "${!entries[@]}"; do
-        menu_entries+=("${entries[$i]}")
+    # ── Monta menu ─────────────────────────────────────────────────────────────
+    # Chave: índice numérico; label: "console (N saves) [/root]"
+    local -a menu_entries=("all" "★ Todos os sistemas")
+    local i
+    for i in $(seq 0 $((idx - 1))); do
+        local root_short
+        root_short=$(basename "${idx_root[$i]}")
+        menu_entries+=("$i" "${idx_console[$i]}  (${idx_count[$i]} saves) [/${root_short}/]")
     done
 
     local choice
     choice=$(dialog --backtitle "$SCRIPT_NAME" \
                     --title "Backup de Saves" \
-                    --menu "Selecione o sistema para backup:" \
-                    $DLG_H $DLG_W 8 \
+                    --menu "Selecione o console para backup:" \
+                    $DLG_H $DLG_W 10 \
                     "${menu_entries[@]}" \
                     3>&1 1>&2 2>&3) || return
 
-    # Determina quais sistemas processar
-    local selected_systems=()
-    if [ "$choice" = "0" ]; then
-        selected_systems=("${systems[@]}")
+    # ── Determina quais entradas processar ─────────────────────────────────────
+    local -a sel_indices
+    if [ "$choice" = "all" ]; then
+        for i in $(seq 0 $((idx - 1))); do sel_indices+=("$i"); done
     else
-        selected_systems=("${systems[$((choice - 1))]}")
+        sel_indices=("$choice")
     fi
 
-    # Processa cada sistema selecionado
-    local total=${#selected_systems[@]}
+    # ── Processa cada console selecionado ──────────────────────────────────────
+    local total=${#sel_indices[@]}
     local current=0
+    local ok_count=0
+    local fail_count=0
 
-    for sysname in "${selected_systems[@]}"; do
+    for i in "${sel_indices[@]}"; do
         current=$((current + 1))
         local pct=$(( (current * 90) / total ))
-        local save_dir="${SAVES_BASE}/${sysname}"
-        local zip_file="${TMP_DIR}/saves_${sysname}_$(date '+%Y%m%d_%H%M%S').zip"
+        local root="${idx_root[$i]}"
+        local console="${idx_console[$i]}"
+        local console_dir="${root}/${console}"
+        local zip_file="${TMP_DIR}/saves_${console}_$(date '+%Y%m%d_%H%M%S').zip"
 
         echo "$pct" | dialog --backtitle "$SCRIPT_NAME" \
-                              --title "Backup: $sysname" \
-                              --gauge "Compactando saves de '$sysname'..." \
+                              --title "Backup: $console" \
+                              --gauge "Compactando saves de '$console'..." \
                               7 $DLG_W 0
 
-        log "Compactando saves de $sysname..."
+        log "Compactando saves de $console (root: $root)..."
 
-        # Compacta .srm, .state*, .sav
-        if ! find "$save_dir" \( -name "*.srm" -o -name "*.state" \
-                                  -o -name "*.state*" -o -name "*.sav" \) \
-             -print0 2>/dev/null | \
-             xargs -0 zip -j "$zip_file" &>/dev/null; then
-            log "AVISO: Falha ao compactar saves de $sysname"
+        # Zip com estrutura de pastas preservada:
+        # cd no root faz com que o zip armazene 'console/save.srm'
+        # e 'console/subpasta/save.srm' — sem colisões de nomes.
+        (
+            cd "$root" || exit 1
+            find "$console" \
+                 -mindepth 1 -maxdepth 3 -type f \
+                 \( -name "*.srm" \
+                    -o -name "*.state" \
+                    -o -name "*.state[0-9]*" \
+                    -o -name "*.sav" \) \
+                 -print0 2>/dev/null \
+            | xargs -0 zip "$zip_file" &>/dev/null
+        )
+
+        local zip_ok=$?
+        if [ "$zip_ok" -ne 0 ] || [ ! -s "$zip_file" ]; then
+            log "AVISO: Falha ao compactar saves de $console"
+            fail_count=$((fail_count + 1))
+            rm -f "$zip_file"
             continue
         fi
 
-        # Upload
         echo "$pct" | dialog --backtitle "$SCRIPT_NAME" \
-                              --title "Backup: $sysname" \
-                              --gauge "Enviando saves de '$sysname' para o RomM..." \
+                              --title "Backup: $console" \
+                              --gauge "Enviando '$console' para o RomM..." \
                               7 $DLG_W "$pct"
 
         log "Enviando $zip_file para o RomM (smart_upload)..."
 
-        # smart_upload escolhe curl ou rclone conforme tamanho e disponibilidade
         local response
         response=$(smart_upload \
             "/api/saves/upload" \
             "$zip_file" \
-            "-F platform_slug=$sysname")
+            "-F platform_slug=$console")
 
         log "Resposta do servidor: $response"
-
-        # Verifica se foi bem-sucedido
-        local status
-        status=$(echo "$response" | jq -r '.status // .message // "ok"' 2>/dev/null || echo "ok")
-        log "Status: $status"
-
+        ok_count=$((ok_count + 1))
         rm -f "$zip_file"
     done
 
     echo "100" | dialog --backtitle "$SCRIPT_NAME" \
-                         --title "Backup Concluído" \
-                         --gauge "Backup finalizado!" \
+                         --title "Backup" \
+                         --gauge "Concluído!" \
                          7 $DLG_W 100
-
     sleep 1
+
+    local summary="✓ Backup concluído!\n\n"
+    summary+="Enviados: $ok_count console(s)\n"
+    [ "$fail_count" -gt 0 ] && summary+="Falhas:   $fail_count (veja o log)"
 
     dialog --backtitle "$SCRIPT_NAME" \
            --title "Backup Concluído" \
-           --msgbox "✓ Backup de saves concluído!\n\n${#selected_systems[@]} sistema(s) sincronizado(s) com sucesso." \
+           --msgbox "$summary" \
            $DLG_H $DLG_W
 }
 
@@ -779,9 +833,15 @@ download_rom() {
     local platform_slug="$4"
 
     # Determina pasta de destino
+    # Usa ROMS_ROOTS[0] (/roms) como destino padrão de download.
+    # Se /roms não existir mas /roms2 existir, usa /roms2.
     local arkos_folder
     arkos_folder=$(romm_slug_to_arkos "$platform_slug")
-    local dest_dir="${ROMS_BASE}/${arkos_folder}"
+    local dest_root="${ROMS_ROOTS[0]}"
+    if [ ! -d "$dest_root" ] && [ -d "${ROMS_ROOTS[1]:-}" ]; then
+        dest_root="${ROMS_ROOTS[1]}"
+    fi
+    local dest_dir="${dest_root}/${arkos_folder}"
     local dest_file="${dest_dir}/${file_name}"
 
     # Cria pasta se não existir
@@ -878,6 +938,94 @@ show_status() {
     fi
 }
 
+# --- Auto-atualização -------------------------------------------------------
+
+# self_update
+# Baixa a versão mais recente do script diretamente do GitHub (branch main).
+# Compara a versão remota com a local antes de substituir; faz backup do
+# arquivo atual e só sobrescreve após confirmação do usuário.
+self_update() {
+    local REPO="fernandodimas/ArkOS_RomM-Sync-Tool"
+    local BRANCH="main"
+    local SCRIPT_NAME_FILE="RomMSync.sh"
+    local RAW_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/${SCRIPT_NAME_FILE}"
+    local SELF
+    SELF=$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0")
+    local TMP_NEW="${TMP_DIR}/RomMSync_new.sh"
+
+    dialog --backtitle "$SCRIPT_NAME" \
+           --infobox "Verificando atualização em GitHub..." \
+           5 $DLG_W
+
+    log "Verificando atualização: $RAW_URL"
+
+    # Baixa nova versão
+    if ! wget -q -O "$TMP_NEW" "$RAW_URL" 2>/dev/null; then
+        dialog --backtitle "$SCRIPT_NAME" \
+               --title "Erro" \
+               --msgbox "✗ Falha ao conectar ao GitHub.\nVerifique sua conexão Wi-Fi." \
+               $DLG_H $DLG_W
+        rm -f "$TMP_NEW"
+        return 1
+    fi
+
+    if [ ! -s "$TMP_NEW" ]; then
+        dialog --backtitle "$SCRIPT_NAME" \
+               --title "Erro" \
+               --msgbox "✗ Arquivo baixado está vazio." \
+               $DLG_H $DLG_W
+        rm -f "$TMP_NEW"
+        return 1
+    fi
+
+    # Extrai versão do arquivo baixado
+    local remote_ver
+    remote_ver=$(grep -m1 '^readonly VERSION=' "$TMP_NEW" \
+                 | sed 's/.*VERSION="\([^"]*\)".*/\1/' 2>/dev/null || echo "?")
+
+    if [ "$remote_ver" = "$VERSION" ]; then
+        dialog --backtitle "$SCRIPT_NAME" \
+               --title "Sem atualizações" \
+               --msgbox "✓ Você já está na versão mais recente!\n\nVersão atual: $VERSION" \
+               $DLG_H $DLG_W
+        rm -f "$TMP_NEW"
+        return 0
+    fi
+
+    # Pede confirmação antes de sobrescrever
+    dialog --backtitle "$SCRIPT_NAME" \
+           --title "Atualização Disponível" \
+           --yesno "Nova versão encontrada!\n\nAtual:  v$VERSION\nNova:   v$remote_ver\n\nDeseja atualizar agora?" \
+           $DLG_H $DLG_W || {
+        rm -f "$TMP_NEW"
+        return 0
+    }
+
+    # Backup da versão atual
+    local backup_file="${SELF}.bak_v${VERSION}"
+    cp -f "$SELF" "$backup_file" 2>/dev/null && \
+        log "Backup criado: $backup_file"
+
+    # Substitui o script e garante permissão de execução
+    if mv -f "$TMP_NEW" "$SELF" && chmod +x "$SELF"; then
+        log "Script atualizado para v$remote_ver com sucesso."
+        dialog --backtitle "$SCRIPT_NAME" \
+               --title "Atualização Concluída" \
+               --msgbox "✓ Script atualizado para v$remote_ver!\n\nBackup salvo em:\n$backup_file\n\nO script será encerrado para aplicar a atualização." \
+               $DLG_H $DLG_W
+        # Sai para forçar releitura da nova versão
+        exit 0
+    else
+        log "ERRO: Falha ao substituir o script."
+        dialog --backtitle "$SCRIPT_NAME" \
+               --title "Erro" \
+               --msgbox "✗ Falha ao gravar a nova versão.\nVerifique permissões em:\n$SELF" \
+               $DLG_H $DLG_W
+        rm -f "$TMP_NEW"
+        return 1
+    fi
+}
+
 # --- Menu Principal -------------------------------------------------------
 
 main_menu() {
@@ -887,12 +1035,13 @@ main_menu() {
                         --title "Menu Principal" \
                         --cancel-label "Sair" \
                         --menu "Use D-Pad para navegar:" \
-                        $DLG_H $DLG_W 6 \
+                        $DLG_H $DLG_W 7 \
                         "1" "⬆  Backup de Saves → RomM" \
                         "2" "⬇  Download de Jogos ← RomM" \
                         "3" "⚙  Reconfigurar Servidor" \
                         "4" "📶 Status da Conexão" \
                         "5" "📋 Ver Log" \
+                        "6" "🔄 Atualizar Script" \
                         3>&1 1>&2 2>&3) || break
 
         case "$choice" in
@@ -913,6 +1062,7 @@ main_menu() {
                            $DLG_H $DLG_W
                 fi
                 ;;
+            6) self_update ;;
         esac
     done
 }
