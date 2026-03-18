@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.2.3"
+readonly VERSION="1.2.4"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly TMP_DIR="/tmp/rommsync"
 # Raízes onde o ArkOS armazena ROMs e saves
@@ -156,32 +156,50 @@ check_dependencies() {
     if [ ${#missing[@]} -gt 0 ]; then
         local pkg_list="${missing[*]}"
 
+        # Detecta gerenciador de pacotes disponível
+        local pkg_update="" pkg_install=""
+        if command -v apt-get &>/dev/null; then
+            pkg_update="sudo apt-get update -y"
+            pkg_install="sudo apt-get install -y"
+        elif command -v opkg &>/dev/null; then
+            pkg_update="opkg update"
+            pkg_install="opkg install"
+        fi
+
         if command -v dialog &>/dev/null; then
             # Mostra quais pacotes faltam e pergunta se quer instalar
             dialog --backtitle "$BACKTITLE" \
                    --title "⚠  Dependências Ausentes" \
                    --cr-wrap \
-                   --yesno "$(printf '%b' "$status_lines")\n\nPacotes necessários: $pkg_list\n\nDeseja instalar agora via opkg?" \
+                   --yesno "$(printf '%b' "$status_lines")\n\nPacotes necessários: $pkg_list\n\nDeseja instalar agora?" \
                    22 62 > "$CURR_TTY"
             local resp=$?
 
             if [ "$resp" -eq 0 ]; then
+                if [ -z "$pkg_update" ]; then
+                    dialog --backtitle "$BACKTITLE" \
+                           --title "Erro" \
+                           --msgbox "Nenhum gerenciador de pacotes encontrado.\n\nInstale manualmente: $pkg_list" \
+                           $DLG_H $DLG_W > "$CURR_TTY"
+                    exit 1
+                fi
+
                 # Usuário escolheu instalar
                 dialog --backtitle "$BACKTITLE" \
                        --title "Instalando Dependências" \
-                       --infobox "Executando: opkg update...\nAguarde..." \
+                       --infobox "Atualizando lista de pacotes...\nAguarde..." \
                        7 $DLG_W > "$CURR_TTY"
 
-                local log_tmp="${TMP_DIR}/opkg_install.log"
+                local log_tmp="${TMP_DIR}/pkg_install.log"
                 mkdir -p "$TMP_DIR"
                 {
-                    opkg update 2>&1
-                    opkg install $pkg_list 2>&1
+                    $pkg_update 2>&1
+                    $pkg_install $pkg_list 2>&1
                 } | tee "$log_tmp" | \
                 dialog --backtitle "$BACKTITLE" \
                        --title "Instalando Dependências" \
-                       --programbox "Saída do opkg:" \
-                       20 $DLG_W
+                       --programbox "Saída do gerenciador de pacotes:" \
+                       20 $DLG_W > "$CURR_TTY"
 
                 # Verifica se tudo foi instalado
                 local still_missing=()
@@ -194,7 +212,6 @@ check_dependencies() {
                            --title "Instalação Concluída" \
                            --msgbox "✓ Dependências instaladas com sucesso!\n\nO script continuará normalmente." \
                            $DLG_H $DLG_W > "$CURR_TTY"
-                    # Continua execução normal
                 else
                     dialog --backtitle "$BACKTITLE" \
                            --title "Erro na Instalação" \
@@ -205,24 +222,26 @@ check_dependencies() {
                 fi
             else
                 # Usuário escolheu não instalar / pressionou Não
+                local install_cmd="${pkg_install:-"apt-get install -y"}"
                 dialog --backtitle "$BACKTITLE" \
                        --title "Encerrando" \
-                       --msgbox "Instalação cancelada.\n\nInstale manualmente quando quiser:\n  opkg update\n  opkg install $pkg_list" \
+                       --msgbox "Instalação cancelada.\n\nInstale manualmente quando quiser:\n  $pkg_update\n  $install_cmd $pkg_list" \
                        $DLG_H $DLG_W > "$CURR_TTY"
                 clear
                 exit 0
             fi
         else
-            # dialog também não está disponível — fallback para terminal
             echo ""
             echo "=== $SCRIPT_NAME: Dependências Ausentes ==="
             printf '%b' "$status_lines"
             echo ""
-            echo "Instale com:  opkg update && opkg install $pkg_list"
+            local install_cmd="${pkg_install:-"apt-get install -y"}"
+            echo "Instale com:  $pkg_update && $install_cmd $pkg_list"
             echo ""
             exit 1
         fi
     fi
+
 
 
     log "Dependências OK. rclone disponível: $RCLONE_AVAILABLE"
