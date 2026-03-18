@@ -1,0 +1,21 @@
+# Configuração local com credenciais (nunca versionar)
+.rommsync.conf
+*.conf
+
+# Arquivos temporários gerados em runtime
+/tmp/
+*.log
+*.zip
+*.tmp
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editores
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
