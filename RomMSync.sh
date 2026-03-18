@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.2.1"
+readonly VERSION="1.2.2"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly TMP_DIR="/tmp/rommsync"
 # Raízes onde o ArkOS armazena ROMs e saves
@@ -1146,18 +1146,17 @@ main() {
     ensure_tmp
     log "=== $SCRIPT_NAME v$VERSION iniciado ==="
 
-    # --- Inicialização do terminal (padrão ArkManager.sh) -------------------
-    # Garante que dialog usa /dev/tty1 como terminal (tela física do ArkOS)
-    # ncurses inicializa no tty onde a saída vai → lê input do mesmo tty
-    # → eventos do controle (mapeados no kernel para tty1) chegam ao dialog
+    # --- Inicialização do terminal (igual ArkManager.sh) --------------------
+    # Ao redirecionar a SAÍDA do dialog para /dev/tty1, o ncurses inicializa
+    # naquele terminal e lê o input (controles mapeados pelo kernel) de lá.
+    # NOTA: não fazemos exec < "$CURR_TTY" porque /dev/tty1 é legível apenas
+    # por root — isso causaria falha silenciosa + saída imediata com set -e.
     if [ -c "$CURR_TTY" ]; then
         export TERM=linux
         unset FBTERM
         printf "\033c" > "$CURR_TTY"
         setfont /usr/share/consolefonts/Lat7-Terminus16.psf.gz > "$CURR_TTY" 2>&1 || true
         printf "\033c" > "$CURR_TTY"
-        # Redireciona stdin TAMBÉM para tty1 — dialog lê controles daqui
-        exec < "$CURR_TTY"
     fi
 
     # Registra limpeza para qualquer forma de saída
