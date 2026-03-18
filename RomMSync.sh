@@ -9,7 +9,7 @@ set -euo pipefail
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.1.3"
+readonly VERSION="1.1.4"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly TMP_DIR="/tmp/rommsync"
 # Raízes onde o ArkOS armazena ROMs e saves
@@ -136,22 +136,78 @@ check_dependencies() {
         status_lines+="$(printf '%-16s  %-13s  %s' "rclone" '○ Não inst.' "${OPT_DESC[rclone]}")\n"
     fi
 
-    # Se há dependência faltando, dialog NÃO está disponível — exibe no terminal
+    # Se há dependência faltando, oferece instalar ou sair
     if [ ${#missing[@]} -gt 0 ]; then
-        # Tenta exibir com dialog se ele estiver presente
+        local pkg_list="${missing[*]}"
+
         if command -v dialog &>/dev/null; then
+            # Mostra quais pacotes faltam e pergunta se quer instalar
             dialog --backtitle "$SCRIPT_NAME" \
                    --title "⚠  Dependências Ausentes" \
                    --cr-wrap \
-                   --msgbox "$(printf '%b' "$status_lines")\n\nInstale os pacotes ausentes:\n  opkg update && opkg install ${missing[*]}\n\nO script não pode continuar." \
+                   --yesno "$(printf '%b' "$status_lines")\n\nPacotes necessários: $pkg_list\n\nDeseja instalar agora via opkg?" \
                    22 62
+            local resp=$?
+
+            if [ "$resp" -eq 0 ]; then
+                # Usuário escolheu instalar
+                dialog --backtitle "$SCRIPT_NAME" \
+                       --title "Instalando Dependências" \
+                       --infobox "Executando: opkg update...\nAguarde..." \
+                       7 $DLG_W
+
+                local log_tmp="${TMP_DIR}/opkg_install.log"
+                mkdir -p "$TMP_DIR"
+                {
+                    opkg update 2>&1
+                    opkg install $pkg_list 2>&1
+                } | tee "$log_tmp" | \
+                dialog --backtitle "$SCRIPT_NAME" \
+                       --title "Instalando Dependências" \
+                       --programbox "Saída do opkg:" \
+                       20 $DLG_W
+
+                # Verifica se tudo foi instalado
+                local still_missing=()
+                for cmd in "${missing[@]}"; do
+                    command -v "$cmd" &>/dev/null || still_missing+=("$cmd")
+                done
+
+                if [ ${#still_missing[@]} -eq 0 ]; then
+                    dialog --backtitle "$SCRIPT_NAME" \
+                           --title "Instalação Concluída" \
+                           --msgbox "✓ Dependências instaladas com sucesso!\n\nO script continuará normalmente." \
+                           $DLG_H $DLG_W
+                    # Continua execução normal
+                else
+                    dialog --backtitle "$SCRIPT_NAME" \
+                           --title "Erro na Instalação" \
+                           --msgbox "✗ Ainda faltam: ${still_missing[*]}\n\nVeja o log em:\n$log_tmp\n\nO script será encerrado." \
+                           $DLG_H $DLG_W
+                    clear
+                    exit 1
+                fi
+            else
+                # Usuário escolheu não instalar / pressionou Não
+                dialog --backtitle "$SCRIPT_NAME" \
+                       --title "Encerrando" \
+                       --msgbox "Instalação cancelada.\n\nInstale manualmente quando quiser:\n  opkg update\n  opkg install $pkg_list" \
+                       $DLG_H $DLG_W
+                clear
+                exit 0
+            fi
         else
-            echo -e "\n=== $SCRIPT_NAME: Dependências Ausentes ==="
+            # dialog também não está disponível — fallback para terminal
+            echo ""
+            echo "=== $SCRIPT_NAME: Dependências Ausentes ==="
             printf '%b' "$status_lines"
-            echo -e "\nInstale: opkg update && opkg install ${missing[*]}\n"
+            echo ""
+            echo "Instale com:  opkg update && opkg install $pkg_list"
+            echo ""
+            exit 1
         fi
-        exit 1
     fi
+
 
     log "Dependências OK. rclone disponível: $RCLONE_AVAILABLE"
 }
