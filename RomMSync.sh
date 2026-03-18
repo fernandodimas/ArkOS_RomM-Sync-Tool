@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.2.2"
+readonly VERSION="1.2.3"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly TMP_DIR="/tmp/rommsync"
 # Raízes onde o ArkOS armazena ROMs e saves
@@ -20,10 +20,15 @@ readonly TMP_DIR="/tmp/rommsync"
 readonly ROMS_ROOTS=("/roms" "/roms2")
 readonly LOG_FILE="/tmp/rommsync.log"
 
-# TTY da tela física do ArkOS (padrão ArkManager.sh)
-# Todos os dialogs redirecionam output para cá — ncurses inicializa no tty1
-# e por isso lê o input (controles) também de lá.
+# TTY da tela física do ArkOS
 CURR_TTY="/dev/tty1"
+
+# PID do gptokeyb (mapeador de controle → teclado)
+GPTOKEYB_PID=""
+# Caminho do gptokeyb e config no ArkOS4clone (@lcdyk)
+GPTOKEYB_BIN="/opt/inttools/gptokeyb"
+GPTOKEYB_CFG="/opt/inttools/keys.gptk"
+GPTOKEYB_DB="/opt/inttools/gamecontrollerdb.txt"
 
 # Tamanho padrão para dialog em telas 640x480
 readonly DLG_H=15
@@ -1140,27 +1145,46 @@ main_menu() {
     done
 }
 
+# Encerra gptokeyb ao sair
+_cleanup_gptokeyb() {
+    pgrep -f gptokeyb | sudo xargs kill -9 2>/dev/null || true
+    GPTOKEYB_PID=""
+}
+
 # --- Ponto de Entrada -----------------------------------------------------
 
 main() {
     ensure_tmp
     log "=== $SCRIPT_NAME v$VERSION iniciado ==="
 
-    # --- Inicialização do terminal (igual ArkManager.sh) --------------------
-    # Ao redirecionar a SAÍDA do dialog para /dev/tty1, o ncurses inicializa
-    # naquele terminal e lê o input (controles mapeados pelo kernel) de lá.
-    # NOTA: não fazemos exec < "$CURR_TTY" porque /dev/tty1 é legível apenas
-    # por root — isso causaria falha silenciosa + saída imediata com set -e.
+    # --- Inicialização do terminal -------------------------------------------
     if [ -c "$CURR_TTY" ]; then
         export TERM=linux
         unset FBTERM
+        # Permissões (igual Plymouth Theme Changer.sh do ArkOS4clone)
+        sudo chmod 666 "$CURR_TTY"  2>/dev/null || true
+        sudo chmod 666 /dev/uinput  2>/dev/null || true
         printf "\033c" > "$CURR_TTY"
         setfont /usr/share/consolefonts/Lat7-Terminus16.psf.gz > "$CURR_TTY" 2>&1 || true
         printf "\033c" > "$CURR_TTY"
+        printf "$SCRIPT_NAME v$VERSION\nAguarde..." > "$CURR_TTY"
+    fi
+
+    # --- Controles (gptokeyb em /opt/inttools — ArkOS4clone) -----------------
+    if [ -x "$GPTOKEYB_BIN" ]; then
+        # Mata instância anterior se existir
+        pgrep -f gptokeyb | sudo xargs kill -9 2>/dev/null || true
+        [ -f "$GPTOKEYB_DB" ] && export SDL_GAMECONTROLLERCONFIG_FILE="$GPTOKEYB_DB"
+        "$GPTOKEYB_BIN" -1 "RomMSync.sh" -c "$GPTOKEYB_CFG" > /dev/null 2>&1 &
+        GPTOKEYB_PID=$!
+        log "gptokeyb iniciado: PID=$GPTOKEYB_PID  config=$GPTOKEYB_CFG"
+        printf "\033c" > "$CURR_TTY"
+    else
+        log "AVISO: gptokeyb não encontrado em $GPTOKEYB_BIN — controles via teclado apenas."
     fi
 
     # Registra limpeza para qualquer forma de saída
-    trap 'clear; log "=== Encerrado ==="' EXIT INT TERM
+    trap '_cleanup_gptokeyb; clear; log "=== Encerrado ==="' EXIT INT TERM
 
     check_dependencies
     check_wifi
