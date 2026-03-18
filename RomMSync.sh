@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.2.7"
+readonly VERSION="1.2.8"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly TMP_DIR="/tmp/rommsync"
 # Raízes onde o ArkOS armazena ROMs e saves
@@ -22,8 +22,9 @@ readonly LOG_FILE="/tmp/rommsync.log"
 # GitHub — usado pelo auto-updater
 readonly GITHUB_REPO="fernandodimas/ArkOS_RomM-Sync-Tool"
 readonly GITHUB_RAW="https://raw.githubusercontent.com/${GITHUB_REPO}/main/RomMSync.sh"
-# Arquivo de config que o usuário pode criar no SD e importar sem teclado
-readonly SD_CONFIG_IMPORT="/roms/rommsync_config.conf"
+# Arquivo de config para import sem teclado (mesmo diretório do script)
+# Ex: /opt/system/Tools/rommsync_config.conf
+readonly CONFIG_IMPORT_NAME="rommsync_config.conf"
 
 # TTY da tela física do ArkOS
 CURR_TTY="/dev/tty1"
@@ -349,36 +350,30 @@ setup_config() {
       # O usuário cria /roms/rommsync_config.conf no PC antes de rodar
       # ----------------------------------------------------------------
       sd)
-        local import_info="Crie o arquivo no seu PC e copie para o\ncartão SD (pasta /roms):\n\n  Nome: rommsync_config.conf\n\n  Conteúdo:\n  ROMM_URL=\"http://SEU_IP:PORTA\"\n  ROMM_USER=\"usuario\"\n  ROMM_PASS=\"senha\""
+        # Pasta do script em execução (ex: /opt/system/Tools)
+        local script_dir
+        script_dir=$(dirname "$(realpath "$0" 2>/dev/null || echo "$0")")
+        local import_path="${script_dir}/${CONFIG_IMPORT_NAME}"
+
+        local import_info="Coloque o arquivo na mesma pasta do app:\n\n  $import_path\n\nFormato do arquivo:\n  ROMM_URL=\"http://SEU_IP:PORTA\"\n  ROMM_USER=\"usuario\"\n  ROMM_PASS=\"senha\"\n\nCrie no PC, copie via SD/USB ou SSH e pressione OK."
         dialog --backtitle "$BACKTITLE" \
-               --title "Importar do SD" \
-               --msgbox "$import_info\n\nDepos de salvar o arquivo, pressione OK." \
-               18 $DLG_W > "$CURR_TTY"
+               --title "Importar Arquivo de Config" \
+               --msgbox "$import_info" \
+               16 $DLG_W > "$CURR_TTY"
 
-        # Procura o arquivo nas raízes de roms
-        local found_path=""
-        for root in /roms /roms2; do
-            if [ -f "${root}/rommsync_config.conf" ]; then
-                found_path="${root}/rommsync_config.conf"
-                break
-            fi
-        done
-        # Também aceita na raiz do SD
-        [ -z "$found_path" ] && [ -f "$SD_CONFIG_IMPORT" ] && found_path="$SD_CONFIG_IMPORT"
-
-        if [ -z "$found_path" ]; then
+        if [ ! -f "$import_path" ]; then
             dialog --backtitle "$BACKTITLE" \
                    --title "Arquivo não encontrado" \
-                   --msgbox "rommsync_config.conf não encontrado em:\n  /roms/ nem /roms2/\n\nCrie o arquivo no PC, coloque no SD e tente novamente." \
+                   --msgbox "Arquivo não encontrado em:\n  $import_path\n\nCrie o arquivo e tente novamente." \
                    $DLG_H $DLG_W > "$CURR_TTY"
             return 1
         fi
 
         # Lê as variáveis do arquivo
         local imp_url imp_user imp_pass
-        imp_url=$(grep  -m1 'ROMM_URL='  "$found_path" | cut -d= -f2- | tr -d '"' | xargs)
-        imp_user=$(grep -m1 'ROMM_USER=' "$found_path" | cut -d= -f2- | tr -d '"' | xargs)
-        imp_pass=$(grep -m1 'ROMM_PASS=' "$found_path" | cut -d= -f2- | tr -d '"' | xargs)
+        imp_url=$(grep  -m1 'ROMM_URL='  "$import_path" | cut -d= -f2- | tr -d '"' | xargs)
+        imp_user=$(grep -m1 'ROMM_USER=' "$import_path" | cut -d= -f2- | tr -d '"' | xargs)
+        imp_pass=$(grep -m1 'ROMM_PASS=' "$import_path" | cut -d= -f2- | tr -d '"' | xargs)
 
         if [ -z "$imp_url" ] || [ -z "$imp_user" ]; then
             dialog --backtitle "$BACKTITLE" \
@@ -391,7 +386,7 @@ setup_config() {
         url="$imp_url"
         user="$imp_user"
         pass="$imp_pass"
-        log "Config importada de $found_path: url=$url user=$user"
+        log "Config importada de $import_path: url=$url user=$user"
         ;;
 
       # ----------------------------------------------------------------
