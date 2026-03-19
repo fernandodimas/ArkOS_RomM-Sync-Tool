@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.2.10"
+readonly VERSION="1.2.11"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly TMP_DIR="/tmp/rommsync"
 # Raízes onde o ArkOS armazena ROMs e saves
@@ -259,41 +259,44 @@ check_dependencies() {
     log "Dependências OK. rclone disponível: $RCLONE_AVAILABLE"
 }
 
+# Flag global: 1 = internet disponível, 0 = apenas LAN ou offline
+INTERNET_OK=0
+
 check_wifi() {
     log "Verificando conectividade de rede..."
 
-    # Método 1: verifica rota padrão (não requer root, não usa ICMP)
+    # --- Passo 1: verifica se há interface de rede ativada (LAN/WiFi) -----
+    local has_route=0
     if ip route 2>/dev/null | grep -q "^default"; then
-        log "Rede OK (rota padrão detectada)."
-        return 0
+        has_route=1
+        log "Rota padrão encontrada (WiFi/LAN ativa)."
     fi
 
-    # Método 2: curl TCP para 8.8.8.8 porta 53 (DNS over TCP, sem ICMP)
-    if curl --silent --connect-timeout 3 --max-time 4 \
-            "http://connectivity-check.ubuntu.com/" \
-            -o /dev/null 2>/dev/null; then
-        log "Rede OK (curl connectivity-check)."
-        return 0
+    if [ "$has_route" = "0" ]; then
+        # Sem rota — pergunta ao usuário se quer continuar
+        log "AVISO: sem rota padrão. Rede pode não estar ativa."
+        dialog --backtitle "$BACKTITLE" \
+               --title "Sem Conexão de Rede" \
+               --yesno "⚠  Nenhuma interface de rede detectada.\n\nVerifique o Wi-Fi e tente novamente.\n\nDeseja tentar continuar mesmo assim?" \
+               $DLG_H $DLG_W > "$CURR_TTY" || exit 1
     fi
 
-    # Método 3: ping (pode falhar sem root em alguns sistemas)
-    if ping -c 1 -W 3 8.8.8.8 &>/dev/null 2>&1 || \
-       ping -c 1 -W 3 1.1.1.1 &>/dev/null 2>&1; then
-        log "Rede OK (ping)."
-        return 0
-    fi
+    # --- Passo 2: testa acesso real à internet (HTTP) ---------------------
+    # Tenta dois endpoints HTTP simples; não usa HTTPS para evitar problemas SSL
+    local test_urls="http://connectivity-check.ubuntu.com/ http://captive.apple.com/"
+    local url
+    for url in $test_urls; do
+        if curl --silent --connect-timeout 5 --max-time 8 \
+                -o /dev/null "$url" 2>/dev/null; then
+            INTERNET_OK=1
+            log "Internet OK ($url)."
+            return 0
+        fi
+    done
 
-    # Nenhum método confirmou conectividade — avisa mas permite continuar
-    log "AVISO: Nenhum método detectou conectividade. Wi-Fi pode não estar ativo."
-    dialog --backtitle "$BACKTITLE" \
-           --title "Sem Conexão Detectada" \
-           --yesno "⚠  Não foi possível confirmar a conexão Wi-Fi.\n\nVerifique se o Wi-Fi está conectado.\n\nDeseja tentar continuar mesmo assim?" \
-           $DLG_H $DLG_W > "$CURR_TTY"
-    local resp=$?
-    if [ "$resp" -ne 0 ]; then
-        exit 1
-    fi
-    log "Usuário optou por continuar sem confirmação de rede."
+    # Se chegou aqui: LAN OK mas internet não acessível
+    INTERNET_OK=0
+    log "Rede local ativa mas sem acesso à internet (HTTP falhou)."
 }
 
 # --- Configuração ---------------------------------------------------------
@@ -1136,7 +1139,12 @@ reconfigure() {
 show_status() {
     if load_config; then
         local server_status="Desconhecido"
-        local http_code
+        local http_code diag_lines=""
+
+        dialog --backtitle "$BACKTITLE" \
+               --infobox "Verificando conexão com o servidor..." \
+               3 50 > "$CURR_TTY"
+
         # shellcheck disable=SC2086
         http_code=$(curl $CURL_OPTS \
                          -o /dev/null -w "%{http_code}" \
@@ -1147,14 +1155,35 @@ show_status() {
         case "$http_code" in
             200) server_status="✓ Online" ;;
             401) server_status="✗ Credenciais inválidas (401)" ;;
-            000) server_status="✗ Sem resposta (DNS/SSL/Rede)" ;;
+            000) server_status="✗ Sem resposta (HTTP 000)"
+                 local host
+                 host=$(printf '%s' "$ROMM_URL" | sed 's|https\?://||' | cut -d'/' -f1 | cut -d':' -f1)
+                 local dns_result=""
+                 dns_result=$(getent hosts "$host" 2>/dev/null | awk '{print $1}') \
+                     || dns_result=$(nslookup "$host" 2>/dev/null | awk '/^Address:/{print $2}' | tail -1)
+                 if [ -n "$dns_result" ]; then
+                     diag_lines="DNS: $host -> $dns_result"
+                 else
+                     diag_lines="DNS: FALHOU (nao resolveu '$host')"
+                 fi
+                 local curl_diag
+                 # shellcheck disable=SC2086
+                 curl_diag=$(curl $CURL_OPTS --stderr - -o /dev/null \
+                                  "${ROMM_URL}/api/heartbeat" 2>&1 \
+                             | grep -iE 'could not|connection|ssl|failed|curl:' | head -1 | cut -c1-70)
+                 [ -n "$curl_diag" ] && diag_lines="${diag_lines}\ncurl: $curl_diag"
+                 ;;
             *) server_status="✗ HTTP $http_code" ;;
         esac
 
+        local msg="Servidor:  $ROMM_URL\nUsuario:   $ROMM_USER\nStatus:    $server_status"
+        [ -n "$diag_lines" ] && msg="${msg}\n\n-- Diagnostico --\n${diag_lines}"
+        msg="${msg}\n\nLog: $LOG_FILE"
+
         dialog --backtitle "$BACKTITLE" \
                --title "Status da Conexão" \
-               --msgbox "Servidor:  $ROMM_URL\nUsuário:   $ROMM_USER\nStatus:    $server_status\n\nLog: $LOG_FILE" \
-               $DLG_H $DLG_W > "$CURR_TTY"
+               --msgbox "$msg" \
+               18 $DLG_W > "$CURR_TTY"
     else
         dialog --backtitle "$BACKTITLE" \
                --title "Status" \
@@ -1323,6 +1352,11 @@ _ver_gt() {
 }
 
 check_update() {
+    # Pula silenciosamente se não há internet (evita timeout de 12s)
+    if [ "${INTERNET_OK:-0}" != "1" ]; then
+        log "Auto-update: sem internet, verificação de atualizações ignorada."
+        return 0
+    fi
     log "Verificando atualizações em $GITHUB_RAW ..."
     dialog --backtitle "$BACKTITLE" \
            --infobox "Verificando atualizações..." \
