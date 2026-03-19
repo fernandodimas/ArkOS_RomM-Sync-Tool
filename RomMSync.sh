@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.2.9"
+readonly VERSION="1.2.10"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly TMP_DIR="/tmp/rommsync"
 # Raízes onde o ArkOS armazena ROMs e saves
@@ -25,6 +25,10 @@ readonly GITHUB_RAW="https://raw.githubusercontent.com/${GITHUB_REPO}/main/RomMS
 # Arquivo de config para import sem teclado (mesmo diretório do script)
 # Ex: /opt/system/Tools/rommsync_config.conf
 readonly CONFIG_IMPORT_NAME="rommsync_config.conf"
+# Opções base de curl para API RomM
+# -k : ignora erros de certificado SSL (necessário em HTTPS auto-assinado)
+# --connect-timeout : evita travar por dezenas de segundos
+readonly CURL_OPTS="-s -k --connect-timeout 15 --max-time 60"
 
 # TTY da tela física do ArkOS
 CURR_TTY="/dev/tty1"
@@ -434,17 +438,38 @@ setup_config() {
     local test_b64
     test_b64=$(printf '%s:%s' "$user" "$pass" | base64 | tr -d '\n')
 
-    local http_code
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+    local http_code curl_err_file
+    curl_err_file="${TMP_DIR}/curl_test_err.txt"
+    mkdir -p "$TMP_DIR"
+
+    # shellcheck disable=SC2086
+    http_code=$(curl $CURL_OPTS \
+                     -o /dev/null -w "%{http_code}" \
                      -H "Authorization: Basic $test_b64" \
-                     "${url%/}/api/heartbeat" 2>/dev/null || echo "000")
+                     "${url%/}/api/heartbeat" 2>"$curl_err_file") || true
+    http_code="${http_code:-000}"
 
     if [ "$http_code" != "200" ]; then
+        # Diagnóstico: tenta identificar causa do 000
+        local diag_detail=""
+        if [ "$http_code" = "000" ]; then
+            local host
+            host=$(printf '%s' "$url" | sed 's|https\?://||' | cut -d'/' -f1 | cut -d':' -f1)
+            if getent hosts "$host" > /dev/null 2>&1 || nslookup "$host" > /dev/null 2>&1; then
+                diag_detail="DNS: OK — servidor recusou ou SSL inválido"
+            else
+                diag_detail="DNS: não foi possível resolver '$host'"
+            fi
+            local curl_err
+            curl_err=$(cat "$curl_err_file" 2>/dev/null | head -1 | cut -c1-50)
+            [ -n "$curl_err" ] && diag_detail="${diag_detail}\nDetalhe: $curl_err"
+        fi
         dialog --backtitle "$BACKTITLE" \
                --title "Erro de Conexão" \
-               --yesno "Não foi possível conectar (HTTP $http_code).\n\nDeseja salvar a configuração mesmo assim?" \
-               $DLG_H $DLG_W > "$CURR_TTY" || return 1
+               --yesno "Não foi possível conectar.\nHTTP: $http_code${diag_detail:+\n$diag_detail}\n\nDeseja salvar a configuração mesmo assim?" \
+               12 $DLG_W > "$CURR_TTY" || { rm -f "$curl_err_file"; return 1; }
     fi
+    rm -f "$curl_err_file"
 
     save_config "$url" "$user" "$pass"
 
@@ -459,7 +484,8 @@ setup_config() {
 api_get() {
     local endpoint="$1"
     local response
-    response=$(curl -s \
+    # shellcheck disable=SC2086
+    response=$(curl $CURL_OPTS \
                     -H "Authorization: Basic $ROMM_AUTH_B64" \
                     -H "Accept: application/json" \
                     "${ROMM_URL}${endpoint}" 2>&1)
@@ -472,7 +498,7 @@ api_post_file() {
     local extra_args="${3:-}"
     local response
     # shellcheck disable=SC2086
-    response=$(curl -s \
+    response=$(curl $CURL_OPTS \
                     -X POST \
                     -H "Authorization: Basic $ROMM_AUTH_B64" \
                     -F "file=@${file}" \
@@ -1111,14 +1137,17 @@ show_status() {
     if load_config; then
         local server_status="Desconhecido"
         local http_code
-        http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+        # shellcheck disable=SC2086
+        http_code=$(curl $CURL_OPTS \
+                         -o /dev/null -w "%{http_code}" \
                          -H "Authorization: Basic $ROMM_AUTH_B64" \
-                         "${ROMM_URL}/api/heartbeat" 2>/dev/null || echo "000")
+                         "${ROMM_URL}/api/heartbeat" 2>/dev/null) || true
+        http_code="${http_code:-000}"
 
         case "$http_code" in
             200) server_status="✓ Online" ;;
-            401) server_status="✗ Credenciais inválidas" ;;
-            000) server_status="✗ Sem conexão" ;;
+            401) server_status="✗ Credenciais inválidas (401)" ;;
+            000) server_status="✗ Sem resposta (DNS/SSL/Rede)" ;;
             *) server_status="✗ HTTP $http_code" ;;
         esac
 
