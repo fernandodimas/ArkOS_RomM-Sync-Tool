@@ -3,6 +3,7 @@
 *.conf
 
 # Arquivos temporários gerados em runtime
+/ThemeMaster
 /tmp/
 *.log
 *.zip

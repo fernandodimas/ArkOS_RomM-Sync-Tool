@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.2.11"
+readonly VERSION="1.2.12"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly TMP_DIR="/tmp/rommsync"
 # Raízes onde o ArkOS armazena ROMs e saves
@@ -282,21 +282,29 @@ check_wifi() {
     fi
 
     # --- Passo 2: testa acesso real à internet (HTTP) ---------------------
-    # Tenta dois endpoints HTTP simples; não usa HTTPS para evitar problemas SSL
+    # Usa wget (como ThemeMaster): diferente bundle SSL/CA do curl no ArkOS
     local test_urls="http://connectivity-check.ubuntu.com/ http://captive.apple.com/"
-    local url
-    for url in $test_urls; do
-        if curl --silent --connect-timeout 5 --max-time 8 \
-                -o /dev/null "$url" 2>/dev/null; then
+    local u
+    for u in $test_urls; do
+        if wget -q --timeout=8 -O /dev/null "$u" 2>/dev/null; then
             INTERNET_OK=1
-            log "Internet OK ($url)."
+            log "Internet OK via wget ($u)."
+            return 0
+        fi
+    done
+
+    # Fallback: tenta com curl caso wget não exista
+    for u in $test_urls; do
+        if curl --silent --connect-timeout 5 --max-time 8 -o /dev/null "$u" 2>/dev/null; then
+            INTERNET_OK=1
+            log "Internet OK via curl ($u)."
             return 0
         fi
     done
 
     # Se chegou aqui: LAN OK mas internet não acessível
     INTERNET_OK=0
-    log "Rede local ativa mas sem acesso à internet (HTTP falhou)."
+    log "Rede local ativa mas sem acesso à internet."
 }
 
 # --- Configuração ---------------------------------------------------------
@@ -326,6 +334,7 @@ ROMM_URL="${url%/}"
 ROMM_USER="${user}"
 ROMM_PASS="${pass}"
 ROMM_AUTH_B64="${b64}"
+AUTOUPDATE="on"
 EOF
     chmod 600 "$CONFIG_FILE"
     log "Configuração salva em $CONFIG_FILE"
@@ -376,11 +385,11 @@ setup_config() {
             return 1
         fi
 
-        # Lê as variáveis do arquivo
-        local imp_url imp_user imp_pass
-        imp_url=$(grep  -m1 'ROMM_URL='  "$import_path" | cut -d= -f2- | tr -d '"' | xargs)
-        imp_user=$(grep -m1 'ROMM_USER=' "$import_path" | cut -d= -f2- | tr -d '"' | xargs)
-        imp_pass=$(grep -m1 'ROMM_PASS=' "$import_path" | cut -d= -f2- | tr -d '"' | xargs)
+        # Lê as variáveis do arquivo — || true: grep retorna 1 se chave ausente
+        local imp_url="" imp_user="" imp_pass=""
+        imp_url=$(grep  -m1 'ROMM_URL='  "$import_path" | cut -d= -f2- | tr -d '"' | xargs) || true
+        imp_user=$(grep -m1 'ROMM_USER=' "$import_path" | cut -d= -f2- | tr -d '"' | xargs) || true
+        imp_pass=$(grep -m1 'ROMM_PASS=' "$import_path" | cut -d= -f2- | tr -d '"' | xargs) || true
 
         if [ -z "$imp_url" ] || [ -z "$imp_user" ]; then
             dialog --backtitle "$BACKTITLE" \
@@ -486,12 +495,13 @@ setup_config() {
 
 api_get() {
     local endpoint="$1"
-    local response
+    local response=""
     # shellcheck disable=SC2086
+    # || true: curl retorna !=0 em timeout/conn-refused; resposta vazia é tratada pelo chamador
     response=$(curl $CURL_OPTS \
                     -H "Authorization: Basic $ROMM_AUTH_B64" \
                     -H "Accept: application/json" \
-                    "${ROMM_URL}${endpoint}" 2>&1)
+                    "${ROMM_URL}${endpoint}" 2>&1) || true
     echo "$response"
 }
 
@@ -499,14 +509,15 @@ api_post_file() {
     local endpoint="$1"
     local file="$2"
     local extra_args="${3:-}"
-    local response
+    local response=""
     # shellcheck disable=SC2086
+    # || true: curl retorna !=0 em falha de rede; chamador verifica resposta vazia
     response=$(curl $CURL_OPTS \
                     -X POST \
                     -H "Authorization: Basic $ROMM_AUTH_B64" \
                     -F "file=@${file}" \
                     $extra_args \
-                    "${ROMM_URL}${endpoint}" 2>&1)
+                    "${ROMM_URL}${endpoint}" 2>&1) || true
     echo "$response"
 }
 
@@ -1166,11 +1177,12 @@ show_status() {
                  else
                      diag_lines="DNS: FALHOU (nao resolveu '$host')"
                  fi
-                 local curl_diag
+                 local curl_diag=""
                  # shellcheck disable=SC2086
+                 # || true: grep retorna 1 quando não há padrão no output — não é erro
                  curl_diag=$(curl $CURL_OPTS --stderr - -o /dev/null \
                                   "${ROMM_URL}/api/heartbeat" 2>&1 \
-                             | grep -iE 'could not|connection|ssl|failed|curl:' | head -1 | cut -c1-70)
+                             | grep -iE 'could not|connection|ssl|failed|curl:' | head -1 | cut -c1-70) || true
                  [ -n "$curl_diag" ] && diag_lines="${diag_lines}\ncurl: $curl_diag"
                  ;;
             *) server_status="✗ HTTP $http_code" ;;
@@ -1357,17 +1369,36 @@ check_update() {
         log "Auto-update: sem internet, verificação de atualizações ignorada."
         return 0
     fi
+
+    # Pula se usuário desabilitou autoupdate no config
+    if [ "${AUTOUPDATE:-on}" = "off" ]; then
+        log "Auto-update: desabilitado pelo usuário (AUTOUPDATE=off)."
+        return 0
+    fi
+
     log "Verificando atualizações em $GITHUB_RAW ..."
     dialog --backtitle "$BACKTITLE" \
            --infobox "Verificando atualizações..." \
            3 45 > "$CURR_TTY"
 
-    # Extrai versão do script no GitHub (linha: readonly VERSION="x.y.z")
-    local latest_ver
-    latest_ver=$(curl -sf --connect-timeout 6 --max-time 12 "$GITHUB_RAW" \
-                 | grep -m1 'readonly VERSION=' \
-                 | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' \
-                 | tr -d '"')
+    # Usa wget (como ThemeMaster): funciona no ArkOS onde curl/HTTPS falha
+    local tmp_check="${TMP_DIR}/rommsync_remote_ver.sh"
+    mkdir -p "$TMP_DIR"
+
+    local latest_ver=""
+    if wget -q --no-check-certificate --timeout=15 \
+             -O "$tmp_check" "$GITHUB_RAW" 2>/dev/null; then
+        # || true: evita set -e quando grep não encontra match (exit 1)
+        latest_ver=$(grep -m1 'readonly VERSION=' "$tmp_check" \
+                     | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"') || true
+    fi
+    # Fallback para curl caso wget não exista no dispositivo
+    if [ -z "$latest_ver" ]; then
+        # || true: pipeline pode retornar !=0 (curl falha ou grep sem match)
+        latest_ver=$(curl -sf --connect-timeout 6 --max-time 12 "$GITHUB_RAW" 2>/dev/null \
+                     | grep -m1 'readonly VERSION=' \
+                     | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"') || true
+    fi
 
     if [ -z "$latest_ver" ]; then
         log "Auto-update: sem resposta do GitHub. Continuando."
@@ -1397,9 +1428,18 @@ check_update() {
 
     local tmp_new
     tmp_new="${TMP_DIR}/RomMSync_update.sh"
-    mkdir -p "$TMP_DIR"
 
-    if ! curl -sf --connect-timeout 10 --max-time 60 "$GITHUB_RAW" -o "$tmp_new"; then
+    # Download: usa wget primeiro (mais confiável no ArkOS), depois curl como fallback
+    local download_ok=0
+    if wget -q --no-check-certificate --timeout=60 \
+             -O "$tmp_new" "$GITHUB_RAW" 2>/dev/null; then
+        download_ok=1
+    elif curl -sf --connect-timeout 10 --max-time 60 \
+              "$GITHUB_RAW" -o "$tmp_new" 2>/dev/null; then
+        download_ok=1
+    fi
+
+    if [ "$download_ok" != "1" ]; then
         dialog --backtitle "$BACKTITLE" \
                --title "Erro de Download" \
                --msgbox "Falha ao baixar v$latest_ver.\nContinuando com v$VERSION." \
