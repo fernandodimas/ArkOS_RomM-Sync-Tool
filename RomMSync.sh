@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.5.1"
+readonly VERSION="1.5.2"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly CONF_VERSION="1.4.0" # Versao de configuracao — usado por rommsync_updater.sh
 TMP_DIR="/dev/shm/rommsync"    # RAM mais rapida que /tmp
@@ -380,11 +380,14 @@ load_config() {
     if [ -f "$CONFIG_FILE" ]; then
         # shellcheck source=/dev/null
         source "$CONFIG_FILE"
+        # Normaliza URL - remove barra final
+        ROMM_URL="${ROMM_URL%/}"
         # Se nao tem versionamento, e config antiga — roda migrator
         if [ -z "${ROMMSYNC_CONF_VERSION:-}" ]; then
             log "Config sem versao detectada, executando migracao..."
             migrate_config
         fi
+        log "Config carregada: URL=$ROMM_URL USER=$ROMM_USER"
         return 0
     fi
     return 1
@@ -608,18 +611,30 @@ api_get() {
     local response=""
     local http_code=""
     local tmp_body="${TMP_DIR}/api_response_$$.json"
+    local tmp_err="${TMP_DIR}/curl_error_$$.tmp"
+    local full_url="${ROMM_URL}${endpoint}"
+    log "=== API GET DEBUG ==="
+    log "ROMM_URL=[${ROMM_URL}]"
+    log "endpoint=[${endpoint}]"
+    log "full_url=[${full_url}]"
+    log "AUTH_B64=[${ROMM_AUTH_B64:0:20}...]"
+    mkdir -p "$TMP_DIR" 2>/dev/null || true
     # shellcheck disable=SC2086
     http_code=$(curl $CURL_OPTS \
                     -w '%{http_code}' \
                     -o "$tmp_body" \
                     -H "Authorization: Basic $ROMM_AUTH_B64" \
                     -H "Accept: application/json" \
-                    "${ROMM_URL}${endpoint}" 2>/dev/null) || true
+                    "$full_url" 2>"$tmp_err") || true
     http_code="${http_code:-000}"
     response=$(cat "$tmp_body" 2>/dev/null) || true
-    rm -f "$tmp_body"
+    local curl_err
+    curl_err=$(cat "$tmp_err" 2>/dev/null) || true
+    rm -f "$tmp_body" "$tmp_err"
 
-    log "API GET: $endpoint -> HTTP $http_code (${#response} bytes)"
+    log "API GET result: HTTP $http_code (${#response} bytes)"
+    [ -n "$curl_err" ] && log "API GET curl stderr: $curl_err"
+    log "=== END DEBUG ==="
 
     if [ -z "$response" ]; then
         log "API GET vazio: $endpoint (HTTP $http_code)"
@@ -1296,6 +1311,9 @@ show_status() {
                          -H "Authorization: Basic $ROMM_AUTH_B64" \
                          "${ROMM_URL}/api/heartbeat" 2>/dev/null) || true
         http_code="${http_code:-000}"
+        log "=== HEARTBEAT DEBUG ==="
+        log "HEARTBEAT URL=[${ROMM_URL}/api/heartbeat]"
+        log "HEARTBEAT HTTP=$http_code"
 
         # Mede latencia (time_total em ms) sem bc
         local latency_raw=""
