@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.5.7"
+readonly VERSION="1.5.8"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly CONF_VERSION="1.4.0" # Versao de configuracao — usado por rommsync_updater.sh
 TMP_DIR="/dev/shm/rommsync"    # RAM mais rapida que /tmp
@@ -547,11 +547,10 @@ setup_config() {
     curl_err_file="${TMP_DIR}/curl_test_err.txt"
     mkdir -p "$TMP_DIR"
 
-    # shellcheck disable=SC2086
-    http_code=$(curl $CURL_OPTS \
+    http_code=$(curl -s -k --connect-timeout 10 --max-time 20 \
                      -o /dev/null -w "%{http_code}" \
                      -H "Authorization: Basic $test_b64" \
-                     "${url%/}/api/heartbeat" 2>"$curl_err_file") || true
+                     "${url%/}/api/heartbeat" 2>"$curl_err_file") || http_code="000"
     http_code="${http_code:-000}"
 
     if [ "$http_code" != "200" ]; then
@@ -615,26 +614,19 @@ api_get() {
     local response=""
     local http_code=""
     local tmp_body="${TMP_DIR}/api_response_$$.json"
-    local tmp_err="${TMP_DIR}/curl_error_$$.tmp"
     local full_url="${ROMM_URL}${endpoint}"
     mkdir -p "$TMP_DIR" 2>/dev/null || true
-    printf '[D]api url=%s\n' "$full_url" >> /tmp/rommsync_debug.log
-    # shellcheck disable=SC2086
-    http_code=$(curl $CURL_OPTS \
+    http_code=$(curl -s -k --connect-timeout 15 --max-time 60 \
                     -w '%{http_code}' \
                     -o "$tmp_body" \
                     -H "Authorization: Basic $ROMM_AUTH_B64" \
                     -H "Accept: application/json" \
-                    "$full_url" 2>"$tmp_err") || true
+                    "$full_url" 2>/dev/null) || http_code="000"
     http_code="${http_code:-000}"
     response=$(cat "$tmp_body" 2>/dev/null) || true
-    local curl_err
-    curl_err=$(cat "$tmp_err" 2>/dev/null) || true
-    rm -f "$tmp_body" "$tmp_err"
+    rm -f "$tmp_body"
 
-    printf '[D]api http=%s bytes=%s\n' "$http_code" "${#response}" >> /tmp/rommsync_debug.log
     log "API GET: $endpoint -> HTTP $http_code (${#response} bytes)"
-    [ -n "$curl_err" ] && log "API GET curl stderr: $curl_err"
 
     if [ -z "$response" ]; then
         log "API GET vazio: $endpoint (HTTP $http_code)"
@@ -653,9 +645,8 @@ api_post_file() {
     local file="$2"
     local extra_args="${3:-}"
     local response=""
-    # shellcheck disable=SC2086
     # || true: curl retorna !=0 em falha de rede; chamador verifica resposta vazia
-    response=$(curl $CURL_OPTS \
+    response=$(curl -s -k --connect-timeout 15 --max-time 120 \
                     -X POST \
                     -H "Authorization: Basic $ROMM_AUTH_B64" \
                     -F "file=@${file}" \
@@ -1305,19 +1296,16 @@ show_status() {
                --infobox "Verificando conexao com o servidor..." \
                3 50 > "$CURR_TTY"
 
-        # shellcheck disable=SC2086
-        http_code=$(curl $CURL_OPTS \
-                         -o /dev/null -w "%{http_code}" \
+        http_code=$(curl -s -k --connect-timeout 10 --max-time 20 \
+                         -o /dev/null -w '%{http_code}' \
                          -H "Authorization: Basic $ROMM_AUTH_B64" \
-                         "${ROMM_URL}/api/heartbeat" 2>/dev/null) || true
+                         "${ROMM_URL}/api/heartbeat" 2>/dev/null) || http_code="000"
         http_code="${http_code:-000}"
-        printf '[D]hb http=%s\n' "$http_code" >> /tmp/rommsync_debug.log
 
         # Mede latencia (time_total em ms) sem bc
         local latency_raw=""
-        # shellcheck disable=SC2086
-        latency_raw=$(curl $CURL_OPTS \
-                         -o /dev/null -w "%{time_total}" \
+        latency_raw=$(curl -s -k --connect-timeout 10 --max-time 20 \
+                         -o /dev/null -w '%{time_total}' \
                          -H "Authorization: Basic $ROMM_AUTH_B64" \
                          "${ROMM_URL}/api/heartbeat" 2>/dev/null) || true
         if [ -n "$latency_raw" ]; then
@@ -1346,8 +1334,7 @@ show_status() {
                      diag_lines="DNS: FALHOU (nao resolveu '$host')"
                  fi
                  local curl_diag=""
-                 # shellcheck disable=SC2086
-                 curl_diag=$(curl $CURL_OPTS --stderr - -o /dev/null \
+                 curl_diag=$(curl -s -k --connect-timeout 10 --max-time 20 --stderr - -o /dev/null \
                                   "${ROMM_URL}/api/heartbeat" 2>&1 \
                              | grep -iE 'could not|connection|ssl|failed|curl:' | head -1 | cut -c1-70) || true
                  [ -n "$curl_diag" ] && diag_lines="${diag_lines}\ncurl: $curl_diag"
@@ -1785,33 +1772,23 @@ main() {
     fi
 
     # --- Teste de conectividade -----------------------------------------------
-    local host_only port_only
-    host_only=$(echo "$ROMM_URL" | sed 's|https\?://||' | cut -d'/' -f1 | cut -d':' -f1)
-    port_only=$(echo "$ROMM_URL" | sed 's|https\?://||' | cut -d'/' -f1 | cut -d':' -f2)
-    port_only="${port_only:-80}"
-    log "Teste de rede: host=$host_only port=$port_only"
-
-    # Testa conectividade via curl
-    local hb_code hb_err
-    hb_err="${TMP_DIR}/hb_err_$$.tmp"
-    # shellcheck disable=SC2086
-    hb_code=$(curl $CURL_OPTS -o /dev/null -w "%{http_code}" \
-                    -H "Authorization: Basic $ROMM_AUTH_B64" \
-                    "${ROMM_URL}/api/heartbeat" 2>"$hb_err") || true
-    hb_code="${hb_code:-000}"
-    local hb_err_msg
-    hb_err_msg=$(cat "$hb_err" 2>/dev/null) || true
-    rm -f "$hb_err"
-    log "Heartbeat test: HTTP $hb_code err=$hb_err_msg"
+    log "Teste de rede: $ROMM_URL"
+    local hb_code=""
+    # Testa sem auth para isolar o problema
+    hb_code=$(curl -s -k --connect-timeout 10 --max-time 20 \
+                    -o /dev/null -w '%{http_code}' \
+                    "${ROMM_URL}/api/heartbeat" 2>/dev/null) || hb_code="000"
+    log "Heartbeat: HTTP $hb_code"
 
     if [ "$hb_code" = "000" ]; then
+        local host_only
+        host_only=$(echo "$ROMM_URL" | sed 's|https\?://||' | cut -d'/' -f1)
         dialog --backtitle "$BACKTITLE" \
                --title "Servidor Inacessivel" \
-               --msgbox "Nao foi possivel conectar em:\n$ROMM_URL\n\nHost: $host_only\nPorta: $port_only\n\nErro curl: $hb_err_msg\n\nVerifique:\n- Se o servidor esta ligado\n- Se a rede WiFi esta conectada\n- Se IP/porta estao corretos" \
+               --msgbox "Nao foi possivel conectar em:\n$ROMM_URL\n\nHost: $host_only\n\nVerifique:\n- Se o servidor esta ligado\n- Se a rede WiFi esta conectada\n- Se IP/porta estao corretos" \
                $DLG_H $DLG_W > "$CURR_TTY"
         return 1
     fi
-    log "Heartbeat OK: HTTP $hb_code"
 
     main_menu
 }
