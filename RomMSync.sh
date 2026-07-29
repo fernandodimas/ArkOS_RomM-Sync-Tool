@@ -12,12 +12,81 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.2.12"
+readonly VERSION="1.4.2"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
-readonly TMP_DIR="/tmp/rommsync"
+readonly CONF_VERSION="1.4.0" # Versão de configuração — usado por rommsync_updater.sh
+readonly TMP_DIR="/dev/shm/rommsync"    # RAM mais rápida que /tmp
+readonly FALLBACK_TMP_DIR="/tmp/rommsync"
 # Raízes onde o ArkOS armazena ROMs e saves
 readonly ROMS_ROOTS=("/roms" "/roms2")
 readonly LOG_FILE="/tmp/rommsync.log"
+
+# Garante uso de /dev/shm, fallback em caso de falha
+guarantee_tmp() {
+    if [ -d "/dev/shm" ]; then
+        readonly TMP_DIR="/dev/shm/rommsync"
+        log "Usando RAM (/dev/shm) para arquivos temporários."
+    else
+        readonly TMP_DIR="$FALLBACK_TMP_DIR"
+        log "/dev/shm não disponível, usando $TMP_DIR (flash)."
+    fi
+    mkdir -p "$TMP_DIR"
+    cache_dir
+}
+
+# --- Cache Layer ---------------------------------------------------------
+# Cache de respostas da API RomM em /dev/shm/rommsync/cache/
+# Cada cache é um arquivo JSON com metadata de timestamp.
+# TTL padrão: 1 hora (3600s). Pode ser sobrescrito por CACHE_TTL env var.
+# Formato do nome: <cache_key>.json
+# Formato do conteúdo: {"ts":<unix_timestamp>,"data":<json_bruto>}
+
+readonly CACHE_DIR="${TMP_DIR}/cache"
+readonly CACHE_TTL="${CACHE_TTL:-3600}"
+
+cache_dir() {
+    mkdir -p "$CACHE_DIR"
+}
+
+cache_get() {
+    local key="$1"
+    local max_age="${2:-$CACHE_TTL}"
+    local cache_file="${CACHE_DIR}/${key}.json"
+
+    [ -f "$cache_file" ] || return 1
+
+    local cached_ts
+    cached_ts=$(jq -r '.ts // 0' "$cache_file" 2>/dev/null) || return 1
+    [ "$cached_ts" = "0" ] && return 1
+
+    local age
+    age=$(( $(date +%s) - cached_ts ))
+    if [ "$age" -le "$max_age" ]; then
+        jq -r '.data' "$cache_file" 2>/dev/null
+        return 0
+    fi
+    return 1
+}
+
+cache_set() {
+    local key="$1"
+    local data="$2"
+    local cache_file="${CACHE_DIR}/${key}.json"
+
+    printf '{"ts":%d,"data":%s}' "$(date +%s)" "$data" > "$cache_file"
+    log "Cache set: ${key}"
+}
+
+cache_invalidate() {
+    local key="$1"
+    rm -f "${CACHE_DIR}/${key}.json"
+    log "Cache invalidated: ${key}"
+}
+
+cache_invalidate_all() {
+    rm -f "${CACHE_DIR}"/*.json 2>/dev/null
+    log "All cache invalidated"
+}
 
 # GitHub — usado pelo auto-updater
 readonly GITHUB_REPO="fernandodimas/ArkOS_RomM-Sync-Tool"
@@ -39,10 +108,6 @@ GPTOKEYB_PID=""
 GPTOKEYB_BIN="/opt/inttools/gptokeyb"
 GPTOKEYB_CFG="/opt/inttools/keys.gptk"
 GPTOKEYB_DB="/opt/inttools/gamecontrollerdb.txt"
-
-# Tamanho padrão para dialog em telas 640x480
-readonly DLG_H=15
-readonly DLG_W=55
 
 # Backtitle global com versão — aparece no topo de TODOS os dialogs
 BACKTITLE="$SCRIPT_NAME  v$VERSION"
@@ -119,7 +184,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 ensure_tmp() {
-    mkdir -p "$TMP_DIR"
+    guarantee_tmp
 }
 
 # check_dependencies: verifica cada ferramenta necessária e exibe tabela visual.
@@ -313,9 +378,26 @@ load_config() {
     if [ -f "$CONFIG_FILE" ]; then
         # shellcheck source=/dev/null
         source "$CONFIG_FILE"
+        # Se não tem versionamento, é config antiga — roda migrator
+        if [ -z "${ROMMSYNC_CONF_VERSION:-}" ]; then
+            log "Config sem versão detectada, executando migração..."
+            migrate_config
+        fi
         return 0
     fi
     return 1
+}
+
+# Migrator de configuração entre versões
+migrate_config() {
+    log "Rodando migrator de configuração..."
+    # Adiciona campos padrão para novas versões
+    local backup="${CONFIG_FILE}.bak.migration"
+    cp -f "$CONFIG_FILE" "$backup" 2>/dev/null
+    # Reseta com versão
+    save_config "${ROMM_URL:-}" "${ROMM_USER:-}" "${ROMM_PASS:-}"
+    rm -f "$backup"
+    log "Migração concluída."
 }
 
 save_config() {
@@ -330,14 +412,17 @@ save_config() {
     cat > "$CONFIG_FILE" <<EOF
 # RomM-Sync-Tool Configuration
 # Gerado em: $(date)
+ROMMSYNC_CONF_VERSION="${CONF_VERSION}"
 ROMM_URL="${url%/}"
 ROMM_USER="${user}"
 ROMM_PASS="${pass}"
 ROMM_AUTH_B64="${b64}"
 AUTOUPDATE="on"
+DIALOGRC_THEME="${DIALOGRC_THEME:-arkos}"
+CACHE_TTL="${CACHE_TTL:-3600}"
 EOF
     chmod 600 "$CONFIG_FILE"
-    log "Configuração salva em $CONFIG_FILE"
+    log "Configuração salva em $CONFIG_FILE (v${CONF_VERSION})"
 }
 
 setup_config() {
@@ -495,13 +580,42 @@ setup_config() {
 
 api_get() {
     local endpoint="$1"
+    local force_refresh="${FORCE_REFRESH:-0}"
+
+    # Não cacheia operações de escrita ou endpoints específicos
+    local no_cache_endpoints=("/api/saves/upload" "/api/roms")
+    local nc
+    for nc in "${no_cache_endpoints[@]}"; do
+        if [ "$endpoint" = "$nc" ]; then
+            force_refresh=1
+            break
+        fi
+    done
+
+    # Tenta cache primeiro
+    if [ "$force_refresh" != "1" ]; then
+        local cached
+        cached=$(cache_get "$endpoint" "$CACHE_TTL") || true
+        if [ -n "$cached" ]; then
+            log "Cache HIT: $endpoint"
+            echo "$cached"
+            return 0
+        fi
+    fi
+
+    # Miss — busca da API
     local response=""
     # shellcheck disable=SC2086
-    # || true: curl retorna !=0 em timeout/conn-refused; resposta vazia é tratada pelo chamador
     response=$(curl $CURL_OPTS \
                     -H "Authorization: Basic $ROMM_AUTH_B64" \
                     -H "Accept: application/json" \
                     "${ROMM_URL}${endpoint}" 2>&1) || true
+
+    # Armazena no cache se foi resposta válida
+    if [ -n "$response" ] && echo "$response" | jq empty 2>/dev/null; then
+        cache_set "$endpoint" "$response"
+    fi
+
     echo "$response"
 }
 
@@ -847,6 +961,9 @@ backup_saves() {
            --title "Backup Concluído" \
            --msgbox "$summary" \
            $DLG_H $DLG_W > "$CURR_TTY"
+
+    # Invalida cache de saves no servidor após upload
+    cache_invalidate_all
 }
 
 # --- Download de Jogos ----------------------------------------------------
@@ -1121,6 +1238,9 @@ download_rom() {
         mv "$tmp_file" "$dest_file"
         log "Download concluído: $dest_file"
 
+        # Invalida cache de ROMs da plataforma — dados podem ter mudado
+        cache_invalidate_all
+
         dialog --backtitle "$BACKTITLE" \
                --title "Download Concluído" \
                --msgbox "✓ Jogo baixado com sucesso!\n\n$rom_name\n\nSalvo em:\n$dest_file" \
@@ -1150,7 +1270,7 @@ reconfigure() {
 show_status() {
     if load_config; then
         local server_status="Desconhecido"
-        local http_code diag_lines=""
+        local http_code latency_ms diag_lines=""
 
         dialog --backtitle "$BACKTITLE" \
                --infobox "Verificando conexão com o servidor..." \
@@ -1162,6 +1282,18 @@ show_status() {
                          -H "Authorization: Basic $ROMM_AUTH_B64" \
                          "${ROMM_URL}/api/heartbeat" 2>/dev/null) || true
         http_code="${http_code:-000}"
+
+        # Mede latência (time_total em ms)
+        # shellcheck disable=SC2086
+        latency_ms=$(curl $CURL_OPTS \
+                         -o /dev/null -w "%{time_total}" \
+                         -H "Authorization: Basic $ROMM_AUTH_B64" \
+                         "${ROMM_URL}/api/heartbeat" 2>/dev/null) || true
+        if [ -n "$latency_ms" ]; then
+            latency_ms=$(printf '%.0f' "$(echo "$latency_ms * 1000" | bc 2>/dev/null || echo 0)") 2>/dev/null || latency_ms="?"
+        else
+            latency_ms="?"
+        fi
 
         case "$http_code" in
             200) server_status="✓ Online" ;;
@@ -1179,7 +1311,6 @@ show_status() {
                  fi
                  local curl_diag=""
                  # shellcheck disable=SC2086
-                 # || true: grep retorna 1 quando não há padrão no output — não é erro
                  curl_diag=$(curl $CURL_OPTS --stderr - -o /dev/null \
                                   "${ROMM_URL}/api/heartbeat" 2>&1 \
                              | grep -iE 'could not|connection|ssl|failed|curl:' | head -1 | cut -c1-70) || true
@@ -1188,14 +1319,55 @@ show_status() {
             *) server_status="✗ HTTP $http_code" ;;
         esac
 
-        local msg="Servidor:  $ROMM_URL\nUsuario:   $ROMM_USER\nStatus:    $server_status"
-        [ -n "$diag_lines" ] && msg="${msg}\n\n-- Diagnostico --\n${diag_lines}"
-        msg="${msg}\n\nLog: $LOG_FILE"
+        # --- Disco -----------------------------------------------------------
+        local disk_info=""
+        for root in "${ROMS_ROOTS[@]}"; do
+            if [ -d "$root" ]; then
+                local avail pct
+                avail=$(df -h "$root" 2>/dev/null | awk 'NR==2{print $4}')
+                pct=$(df "$root" 2>/dev/null | awk 'NR==2{print $5}' | tr -d '%')
+                disk_info="${disk_info}${root}: ${avail} livre (${pct}% usado)\n"
+            fi
+        done
+
+        # --- Saves pendentes -------------------------------------------------
+        local saves_count=0
+        for root in "${ROMS_ROOTS[@]}"; do
+            [ -d "$root" ] || continue
+            local c
+            c=$(find "$root" -mindepth 1 -maxdepth 3 -type f \
+                    \( -name "*.srm" -o -name "*.state" -o -name "*.state[0-9]*" -o -name "*.sav" \) \
+                    2>/dev/null | wc -l | tr -d ' ')
+            saves_count=$((saves_count + ${c:-0}))
+        done
+
+        # --- Cache -----------------------------------------------------------
+        local cache_count=0
+        if [ -d "$CACHE_DIR" ]; then
+            cache_count=$(ls -1 "${CACHE_DIR}"/*.json 2>/dev/null | wc -l | tr -d ' ')
+        fi
+
+        # --- Monta mensagem -------------------------------------------------
+        local msg="Servidor:     $ROMM_URL\n"
+        msg+="Usuário:      $ROMM_USER\n"
+        msg+="Status:       $server_status\n"
+        msg+="Latência:     ${latency_ms}ms\n"
+        msg+="\n"
+        msg+="-- Disco --\n"
+        [ -n "$disk_info" ] && msg+="${disk_info}"
+        msg+="\n"
+        msg+="-- Dados Locais --\n"
+        msg+="Saves:        ${saves_count} arquivo(s)\n"
+        msg+="Cache API:    ${cache_count} entrada(s)\n"
+        msg+="Tema:         ${DIALOGRC_THEME:-arkos}\n"
+        msg+="\n"
+        [ -n "$diag_lines" ] && msg+="-- Diagnóstico --\n${diag_lines}\n"
+        msg+="Log: $LOG_FILE"
 
         dialog --backtitle "$BACKTITLE" \
                --title "Status da Conexão" \
                --msgbox "$msg" \
-               18 $DLG_W > "$CURR_TTY"
+               22 $DLG_W > "$CURR_TTY"
     else
         dialog --backtitle "$BACKTITLE" \
                --title "Status" \
@@ -1275,6 +1447,19 @@ self_update() {
     # Substitui o script e garante permissão de execução
     if mv -f "$TMP_NEW" "$SELF" && chmod +x "$SELF"; then
         log "Script atualizado para v$remote_ver com sucesso."
+
+        # Executa updater para migrações de config
+        local updater_path
+        updater_path="$(dirname "$SELF")/rommsync_updater.sh"
+        if [ -x "$updater_path" ]; then
+            log "Executando updater: $updater_path"
+            NEW_VERSION="$remote_ver" SCRIPT_DIR="$(dirname "$SELF")" \
+                "$updater_path" "$VERSION" 2>>"$LOG_FILE" || \
+                log "AVISO: updater retornou código diferente de zero."
+        else
+            log "Updater não encontrado em $updater_path — nenhuma migração executada."
+        fi
+
         dialog --backtitle "$BACKTITLE" \
                --title "Atualização Concluída" \
                --msgbox "✓ Script atualizado para v$remote_ver!\n\nBackup salvo em:\n$backup_file\n\nO script será encerrado para aplicar a atualização." \
@@ -1292,6 +1477,75 @@ self_update() {
     fi
 }
 
+# --- Temas de Cores Dialog ------------------------------------------------
+
+# Mapa de temas: chave → arquivo dialogrc
+# Caminho base dos temas (relativo ao diretório do script)
+readonly THEMES_DIR="${SCRIPT_DIR:-.}/themes"
+declare -A THEME_MAP=(
+    ["arkos"]="${THEMES_DIR}/rommsync_arkos.dialogrc"
+    ["high_contrast"]="${THEMES_DIR}/rommsync_high_contrast.dialogrc"
+    ["blue"]="${THEMES_DIR}/rommsync_blue.dialogrc"
+    ["green"]="${THEMES_DIR}/rommsync_green.dialogrc"
+    ["default"]=""
+)
+
+# Aplica tema de cores dialog
+apply_theme() {
+    local theme_key="$1"
+    local theme_file="${THEME_MAP[$theme_key]:-}"
+
+    if [ -n "$theme_file" ] && [ -f "$theme_file" ]; then
+        export DIALOGRC="$theme_file"
+        log "Tema aplicado: $theme_key ($theme_file)"
+    else
+        unset DIALOGRC 2>/dev/null
+        log "Tema padrão do sistema (nenhum DIALOGRC definido)"
+    fi
+}
+
+# Lista temas disponíveis para o menu
+get_theme_list() {
+    local themes=()
+    for key in "${!THEME_MAP[@]}"; do
+        themes+=("$key")
+    done
+    echo "${themes[*]}"
+}
+
+# Menu de seleção de tema
+theme_menu() {
+    local current_theme="${DIALOGRC_THEME:-arkos}"
+
+    local choice
+    choice=$(dialog --output-fd 1 --backtitle "$BACKTITLE" \
+                    --title "Tema de Cores" \
+                    --menu "Selecione o tema visual:" \
+                    $DLG_H $DLG_W 8 \
+                    "arkos"         "ArkOS (padrão — preto com verde)" \
+                    "high_contrast" "Alto Contraste (amarelo/preto)" \
+                    "blue"          "Azul (visual suave)" \
+                    "green"         "Verde (terminal retro)" \
+                    "default"       "Padrão do sistema" \
+                    2>"$CURR_TTY") || return
+
+    DIALOGRC_THEME="$choice"
+    apply_theme "$choice"
+
+    # Salva no config
+    if grep -q '^DIALOGRC_THEME=' "$CONFIG_FILE" 2>/dev/null; then
+        sed -i "s/^DIALOGRC_THEME=.*/DIALOGRC_THEME=\"${choice}\"/" "$CONFIG_FILE"
+    else
+        echo "DIALOGRC_THEME=\"${choice}\"" >> "$CONFIG_FILE"
+    fi
+
+    log "Tema alterado para: $choice"
+    dialog --backtitle "$BACKTITLE" \
+           --title "Tema Aplicado" \
+           --msgbox "✓ Tema alterado para: $choice\n\nAs cores serão aplicadas nos próximos diálogos." \
+           $DLG_H $DLG_W > "$CURR_TTY"
+}
+
 # --- Menu Principal -------------------------------------------------------
 
 main_menu() {
@@ -1300,14 +1554,16 @@ main_menu() {
         choice=$(dialog --output-fd 1 --backtitle "$SCRIPT_NAME v$VERSION" \
                         --title "Menu Principal" \
                         --menu "Use D-Pad para navegar:" \
-                        $DLG_H $DLG_W 8 \
+                        $DLG_H $DLG_W 10 \
                         "1" "⬆  Backup de Saves → RomM" \
                         "2" "⬇  Download de Jogos ← RomM" \
                         "3" "⚙  Reconfigurar Servidor" \
                         "4" "📶 Status da Conexão" \
                         "5" "📋 Ver Log" \
-                        "6" "🔄 Atualizar Script" \
-                        "7" "🚪 Sair" \
+                        "6" "🎨 Tema de Cores" \
+                        "7" "🗑  Limpar Cache" \
+                        "8" "🔄 Atualizar Script" \
+                        "9" "🚪 Sair" \
                         2>"$CURR_TTY") || break
 
         case "$choice" in
@@ -1328,8 +1584,16 @@ main_menu() {
                            $DLG_H $DLG_W > "$CURR_TTY"
                 fi
                 ;;
-            6) self_update ;;
+            6) theme_menu ;;
             7)
+                FORCE_REFRESH=1 cache_invalidate_all
+                dialog --backtitle "$BACKTITLE" \
+                       --title "Cache Limpo" \
+                       --msgbox "✓ Cache de API limpo.\n\nAs próximas requisições buscarão dados frescos do servidor." \
+                       $DLG_H $DLG_W > "$CURR_TTY"
+                ;;
+            8) self_update ;;
+            9)
                 dialog --backtitle "$BACKTITLE" \
                        --title "Sair" \
                        --yesno "Deseja sair do $SCRIPT_NAME?" \
@@ -1463,6 +1727,18 @@ check_update() {
     sudo cp "$tmp_new" "$script_path" 2>/dev/null || cp "$tmp_new" "$script_path"
     rm -f "$tmp_new"
 
+    # Executa updater para migrações de config
+    local updater_path
+    updater_path="$(dirname "$script_path")/rommsync_updater.sh"
+    if [ -x "$updater_path" ]; then
+        log "Executando updater: $updater_path"
+        NEW_VERSION="$latest_ver" SCRIPT_DIR="$(dirname "$script_path")" \
+            "$updater_path" "$VERSION" 2>>"$LOG_FILE" || \
+            log "AVISO: updater retornou código diferente de zero."
+    else
+        log "Updater não encontrado em $updater_path — nenhuma migração executada."
+    fi
+
     dialog --backtitle "$BACKTITLE" \
            --title "Atualizado!" \
            --msgbox "✓ Atualizado para v$latest_ver!\n\nFeche e reabra o aplicativo para usar a nova versão." \
@@ -1504,6 +1780,22 @@ main() {
         log "AVISO: gptokeyb não encontrado em $GPTOKEYB_BIN — controles via teclado apenas."
     fi
 
+    # Detecta tamanho do terminal para dialog
+    local cols rows
+    cols=$(stty size 2>/dev/null | cut -d' ' -f2)
+    rows=$(stty size 2>/dev/null | cut -d' ' -f1)
+    
+    # Fallback para padrões se stty falhar (ex: ambiente sem terminal)
+    cols=${cols:-72}
+    rows=${cols:-27}
+    
+    DLG_W=$((cols - 4))
+    DLG_H=$((rows - 4))
+
+    # --- Temas de Cores Dialog -----------------------------------------------
+    # Aplica tema selecionado pelo usuário (ou padrão ArkOS)
+    apply_theme "${DIALOGRC_THEME:-arkos}"
+
     # Registra limpeza para qualquer forma de saída
     trap '_cleanup_gptokeyb; clear; log "=== Encerrado ==="' EXIT INT TERM
 
@@ -1530,5 +1822,17 @@ main() {
 
     main_menu
 }
+
+# --- Argumentos CLI -----------------------------------------------------
+# Uso: RomMSync.sh [--force-refresh]
+#   --force-refresh  Ignora cache de API, busca dados frescos do servidor
+
+FORCE_REFRESH=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --force-refresh) FORCE_REFRESH=1; shift ;;
+        *) shift ;;
+    esac
+done
 
 main "$@"

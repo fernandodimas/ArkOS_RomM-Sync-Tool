@@ -1,0 +1,27 @@
+# RomM-Sync-Tool - Configuração de Controles (gptokeyb)
+# Formato: mapeamento de teclas para dialog navigation
+# Docs: https://github.com/christianhaitian/gptokeyb
+#
+# Este arquivo é lido pelo gptokeyb para mapear botões do gamepad
+# para teclas do teclado que o dialog entende.
+#
+# Mapeamento padrão ArkOS:
+#   D-Pad      → Setas
+#   A/B        → Enter/Escape
+#   X/Y        → Espaço/Backspace
+#   L1/R1      → Tab/Shift+Tab
+#   Start      → Enter
+#   Select     → Escape
+#
+# Para personalizar, edite as linhas abaixo e reinicie o app.
+# Valores são códigos de tecla Linux (keycode).
+
+# Teclas do dialog
+dialog_up=Up
+dialog_down=Down
+dialog_left=Left
+dialog_right=Right
+dialog_enter=Enter
+dialog_escape=Escape
+dialog_tab=Tab
+dialog_backspace=Backspace

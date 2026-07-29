@@ -1,0 +1,43 @@
+#
+# RomM-Sync-Tool - Tema Azul
+# Visual mais suave para uso prolongado
+#
+aspect = 0
+separate_widget = ""
+tab_len = 0
+visit_items = OFF
+use_shadow = OFF
+use_colors = ON
+
+screen_color = (BLACK,BLUE,ON)
+dialog_color = (WHITE,BLUE,OFF)
+title_color = (CYAN,BLUE,ON)
+border_color = (CYAN,BLUE,ON)
+button_active_color = (BLACK,GREEN,ON)
+button_inactive_color = (WHITE,BLUE,OFF)
+button_key_active_color = (BLACK,GREEN,ON)
+button_key_inactive_color = (RED,WHITE,ON)
+button_label_active_color = (BLACK,GREEN,ON)
+button_label_inactive_color = (WHITE,BLUE,OFF)
+gauge_color = (BLACK,WHITE,ON)
+inputbox_color = (WHITE,BLUE,OFF)
+inputbox_border_color = (CYAN,BLUE,ON)
+menubox_color = (WHITE,BLUE,OFF)
+menubox_border_color = (CYAN,BLUE,ON)
+menu_color = (WHITE,BLUE,OFF)
+menu_active_color = (BLACK,GREEN,ON)
+menu_inactive_color = (WHITE,BLUE,OFF)
+item_color = (WHITE,BLUE,OFF)
+item_active_color = (BLACK,GREEN,ON)
+tag_color = (CYAN,BLUE,ON)
+tag_active_color = (BLACK,GREEN,ON)
+tag_inactive_color = (RED,BLUE,ON)
+check_color = (WHITE,BLUE,OFF)
+check_active_color = (BLACK,GREEN,ON)
+uarrow_color = (GREEN,BLUE,ON)
+darrow_color = (GREEN,BLUE,ON)
+position_indicator_color = (GREEN,BLUE,ON)
+textbox_color = (WHITE,BLUE,OFF)
+textbox_border_color = (CYAN,BLUE,ON)
+form_color = (WHITE,BLUE,OFF)
+form_active_color = (BLACK,GREEN,ON)

@@ -1,0 +1,43 @@
+#
+# RomM-Sync-Tool - Tema Alto Contraste
+# Para telas com baixa visibilidade ou uso externo
+#
+aspect = 0
+separate_widget = ""
+tab_len = 0
+visit_items = OFF
+use_shadow = OFF
+use_colors = ON
+
+screen_color = (BLACK,YELLOW,ON)
+dialog_color = (YELLOW,BLACK,ON)
+title_color = (BLACK,YELLOW,ON)
+border_color = (YELLOW,BLACK,ON)
+button_active_color = (BLACK,WHITE,ON)
+button_inactive_color = (YELLOW,BLACK,OFF)
+button_key_active_color = (BLACK,WHITE,ON)
+button_key_inactive_color = (RED,YELLOW,ON)
+button_label_active_color = (BLACK,WHITE,ON)
+button_label_inactive_color = (YELLOW,BLACK,OFF)
+gauge_color = (BLACK,WHITE,ON)
+inputbox_color = (YELLOW,BLACK,OFF)
+inputbox_border_color = (YELLOW,BLACK,ON)
+menubox_color = (YELLOW,BLACK,OFF)
+menubox_border_color = (YELLOW,BLACK,ON)
+menu_color = (YELLOW,BLACK,OFF)
+menu_active_color = (BLACK,WHITE,ON)
+menu_inactive_color = (YELLOW,BLACK,OFF)
+item_color = (YELLOW,BLACK,OFF)
+item_active_color = (BLACK,WHITE,ON)
+tag_color = (YELLOW,BLACK,ON)
+tag_active_color = (BLACK,WHITE,ON)
+tag_inactive_color = (RED,YELLOW,ON)
+check_color = (YELLOW,BLACK,OFF)
+check_active_color = (BLACK,WHITE,ON)
+uarrow_color = (WHITE,BLACK,ON)
+darrow_color = (WHITE,BLACK,ON)
+position_indicator_color = (WHITE,BLACK,ON)
+textbox_color = (YELLOW,BLACK,OFF)
+textbox_border_color = (YELLOW,BLACK,ON)
+form_color = (YELLOW,BLACK,OFF)
+form_active_color = (BLACK,WHITE,ON)

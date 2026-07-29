@@ -1,0 +1,43 @@
+#
+# RomM-Sync-Tool - Tema Verde
+# Visual retro estilo terminal
+#
+aspect = 0
+separate_widget = ""
+tab_len = 0
+visit_items = OFF
+use_shadow = OFF
+use_colors = ON
+
+screen_color = (BLACK,GREEN,ON)
+dialog_color = (GREEN,BLACK,OFF)
+title_color = (WHITE,GREEN,ON)
+border_color = (GREEN,BLACK,ON)
+button_active_color = (BLACK,WHITE,ON)
+button_inactive_color = (GREEN,BLACK,OFF)
+button_key_active_color = (BLACK,WHITE,ON)
+button_key_inactive_color = (RED,GREEN,ON)
+button_label_active_color = (BLACK,WHITE,ON)
+button_label_inactive_color = (GREEN,BLACK,OFF)
+gauge_color = (BLACK,WHITE,ON)
+inputbox_color = (GREEN,BLACK,OFF)
+inputbox_border_color = (GREEN,BLACK,ON)
+menubox_color = (GREEN,BLACK,OFF)
+menubox_border_color = (GREEN,BLACK,ON)
+menu_color = (GREEN,BLACK,OFF)
+menu_active_color = (BLACK,WHITE,ON)
+menu_inactive_color = (GREEN,BLACK,OFF)
+item_color = (GREEN,BLACK,OFF)
+item_active_color = (BLACK,WHITE,ON)
+tag_color = (WHITE,GREEN,ON)
+tag_active_color = (BLACK,WHITE,ON)
+tag_inactive_color = (RED,GREEN,ON)
+check_color = (GREEN,BLACK,OFF)
+check_active_color = (BLACK,WHITE,ON)
+uarrow_color = (WHITE,GREEN,ON)
+darrow_color = (WHITE,GREEN,ON)
+position_indicator_color = (WHITE,GREEN,ON)
+textbox_color = (GREEN,BLACK,OFF)
+textbox_border_color = (GREEN,BLACK,ON)
+form_color = (GREEN,BLACK,OFF)
+form_active_color = (BLACK,WHITE,ON)
