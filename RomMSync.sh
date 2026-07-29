@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.5.11"
+readonly VERSION="1.5.12"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly CONF_VERSION="1.4.0" # Versao de configuracao — usado por rommsync_updater.sh
 TMP_DIR="/dev/shm/rommsync"    # RAM mais rapida que /tmp
@@ -1503,37 +1503,8 @@ self_update() {
     fi
 }
 
-# --- Verificacao de atualizacao em background -------------------------------
-UPDATE_AVAILABLE=""
-UPDATE_VERSION=""
+# --- Verificacao de status do servidor em background -----------------------
 SERVER_STATUS="?"
-
-bg_check_update() {
-    if [ "${INTERNET_OK:-0}" != "1" ]; then
-        return 0
-    fi
-    if [ "${AUTOUPDATE:-on}" = "off" ]; then
-        return 0
-    fi
-    local tmp_check="${TMP_DIR}/rommsync_remote_ver.sh"
-    mkdir -p "$TMP_DIR" 2>/dev/null || true
-    local latest_ver=""
-    if wget -q --no-check-certificate --timeout=10 \
-             -O "$tmp_check" "$GITHUB_RAW" 2>/dev/null; then
-        latest_ver=$(grep -m1 'readonly VERSION=' "$tmp_check" \
-                     | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"') || true
-    fi
-    if [ -z "$latest_ver" ]; then
-        latest_ver=$(curl -sf --connect-timeout 5 --max-time 10 "$GITHUB_RAW" 2>/dev/null \
-                     | grep -m1 'readonly VERSION=' \
-                     | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"') || true
-    fi
-    if [ -n "$latest_ver" ] && _ver_gt "$latest_ver" "$VERSION"; then
-        UPDATE_AVAILABLE="1"
-        UPDATE_VERSION="$latest_ver"
-        log "Atualizacao disponivel: v$latest_ver (instalado: v$VERSION)"
-    fi
-}
 
 bg_check_server() {
     if ! load_config 2>/dev/null; then
@@ -1556,8 +1527,7 @@ bg_check_server() {
 # --- Menu Principal -------------------------------------------------------
 
 main_menu() {
-    # Verificacoes em background (nao bloqueiam o menu)
-    bg_check_update &
+    # Verificacao de servidor em background (nao bloqueia o menu)
     bg_check_server &
     wait
 
@@ -1568,7 +1538,6 @@ main_menu() {
         [ "$SERVER_STATUS" = "AUTH" ] && hdr="[Servidor: AUTH ERR]"
         [ "$SERVER_STATUS" = "ERR" ]  && hdr="[Servidor: OFFLINE]"
         [ "$SERVER_STATUS" = "!" ]    && hdr="[Sem config]"
-        [ "$UPDATE_AVAILABLE" = "1" ] && hdr="$hdr [Update: v$UPDATE_VERSION]"
 
         local choice
         choice=$(dialog --output-fd 1 --backtitle "$SCRIPT_NAME v$VERSION $hdr" \
@@ -1578,7 +1547,7 @@ main_menu() {
                         "1" "Backup de Saves" \
                         "2" "Download de Jogos" \
                         "3" "Reconfigurar Servidor" \
-                        "4" "Atualizar Script${UPDATE_VERSION:+ (v$UPDATE_VERSION disponivel)}" \
+                        "4" "Atualizar Script" \
                         "5" "Sair" \
                         2>"$CURR_TTY") || break
 
