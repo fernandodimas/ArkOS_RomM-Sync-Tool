@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.5.15"
+readonly VERSION="1.5.16"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly CONF_VERSION="1.4.0" # Versao de configuracao — usado por rommsync_updater.sh
 TMP_DIR="/dev/shm/rommsync"    # RAM mais rapida que /tmp
@@ -1109,42 +1109,78 @@ list_games() {
     local platform_id="$1"
     local platform_slug="$2"
     local platform_name="$3"
-    local page_size=50
-    local offset=0
+
+    dialog --backtitle "$BACKTITLE" \
+           --infobox "Carregando jogos de '$platform_name'..." \
+           3 $DLG_W > "$CURR_TTY"
+
+    # Carrega JSON completo uma vez (texto, nao arrays bash)
+    local response
+    response=$(api_get "/api/roms?platform_id=${platform_id}&limit=5000&offset=0")
+
+    if [ -z "$response" ] || echo "$response" | grep -q '"detail"'; then
+        dialog --backtitle "$BACKTITLE" \
+               --title "Erro" \
+               --msgbox "Erro ao carregar jogos:\n$(echo "$response" | jq -r '.detail // "Sem resposta"' 2>/dev/null)" \
+               $DLG_H $DLG_W > "$CURR_TTY"
+        return
+    fi
+
+    # Extrai letras unicas (A-Z, 0-9 agrupados em #)
+    local letters_arr=()
+    while IFS= read -r letter; do
+        [ -z "$letter" ] && continue
+        # Agrupa 0-9 em #
+        if echo "$letter" | grep -qE '^[0-9]$'; then
+            [ "${letters_arr[0]:-}" != "#" ] && letters_arr=("#" "${letters_arr[@]}")
+        else
+            letters_arr+=("$letter")
+        fi
+    done < <(
+        echo "$response" | jq -r \
+            '[.items[].name // .file_name | .[0:1] | ascii_upcase] | unique | .[]' \
+            2>/dev/null
+    )
+
+    if [ ${#letters_arr[@]} -eq 0 ]; then
+        dialog --backtitle "$BACKTITLE" \
+               --title "Aviso" \
+               --msgbox "Nenhum jogo encontrado para '$platform_name'." \
+               $DLG_H $DLG_W > "$CURR_TTY"
+        return
+    fi
+
+    local current_idx=0
 
     while true; do
-        dialog --backtitle "$BACKTITLE" \
-               --infobox "Carregando jogos de '$platform_name'..." \
-               5 $DLG_W > "$CURR_TTY"
+        local current_letter="${letters_arr[$current_idx]}"
 
-        local response
-        response=$(api_get "/api/roms?platform_id=${platform_id}&limit=${page_size}&offset=${offset}")
-
-        if [ -z "$response" ] || echo "$response" | grep -q '"detail"'; then
-            dialog --backtitle "$BACKTITLE" \
-                   --title "Erro" \
-                   --msgbox "Erro ao carregar jogos:\n$(echo "$response" | jq -r '.detail // "Sem resposta"' 2>/dev/null)" \
-                   $DLG_H $DLG_W > "$CURR_TTY"
-            return
+        # Filtra jogos da letra atual com jq
+        local filtered
+        if [ "$current_letter" = "#" ]; then
+            filtered=$(echo "$response" | jq \
+                '[.items[] | select((.name // .file_name | .[0:1]) | test("^[0-9]"))]' \
+                2>/dev/null)
+        else
+            filtered=$(echo "$response" | jq --arg letter "$current_letter" \
+                '[.items[] | select((.name // .file_name | .[0:1] | ascii_upcase) == $letter)]' \
+                2>/dev/null)
         fi
 
-        local total
-        total=$(echo "$response" | jq '.items | length' 2>/dev/null || echo "0")
+        local count
+        count=$(echo "$filtered" | jq 'length' 2>/dev/null || echo 0)
 
-        if [ "$total" = "0" ] && [ "$offset" -eq 0 ]; then
-            dialog --backtitle "$BACKTITLE" \
-                   --title "Aviso" \
-                   --msgbox "Nenhum jogo encontrado para '$platform_name'." \
-                   $DLG_H $DLG_W > "$CURR_TTY"
-            return
+        if [ "$count" = "0" ]; then
+            current_idx=$((current_idx + 1))
+            [ "$current_idx" -ge ${#letters_arr[@]} ] && current_idx=0
+            continue
         fi
 
-        # Monta menu com jogos desta pagina
+        # Monta menu apenas para jogos desta letra
         local menu_entries=()
         local rom_ids=()
         local rom_names=()
         local rom_files=()
-        local idx=0
 
         while IFS=$'\x01' read -r rid rfile rname rsize; do
             [ -z "$rid" ] || [ "$rid" = "null" ] && continue
@@ -1162,51 +1198,49 @@ list_games() {
             rom_names+=("$rname")
             rom_files+=("$rfile")
             menu_entries+=("$rid" "${rname:0:36}  [${size_str}]")
-            idx=$((idx + 1))
         done < <(
-            echo "$response" | jq -r \
-                '.items[] | (.id | tostring)
+            echo "$filtered" | jq -r \
+                '.[] | (.id | tostring)
                     + "\u0001" + .file_name
                     + "\u0001" + (.name // .file_name)
                     + "\u0001" + ((.file_size_bytes // 0) | tostring)' \
                 2>/dev/null
         )
 
-        # Adiciona navegacao de paginas
+        # Navegacao por letra (L1/R1)
         local nav_entries=()
-        [ "$offset" -gt 0 ] && nav_entries+=("PREV" "<< Pagina anterior")
-        local next_offset=$((offset + page_size))
-        if [ "$idx" -eq "$page_size" ]; then
-            nav_entries+=("NEXT" "Proxima pagina >>")
+        if [ "$current_idx" -gt 0 ]; then
+            local prev_letter="${letters_arr[$((current_idx - 1))]}"
+            nav_entries+=("PREV" "<< $prev_letter")
         fi
-
-        # Header com info da paginacao
-        local page_info="Pagina $((offset / page_size + 1))"
-        [ "$idx" -lt "$page_size" ] && page_info="$page_info (ultima)"
+        if [ "$current_idx" -lt $((${#letters_arr[@]} - 1)) ]; then
+            local next_letter="${letters_arr[$((current_idx + 1))]}"
+            nav_entries+=("NEXT" "$next_letter >>")
+        fi
 
         local all_entries=("${menu_entries[@]}" "${nav_entries[@]}")
 
         local choice
         choice=$(dialog --output-fd 1 --backtitle "$BACKTITLE" \
-                        --title "$platform_name - $page_info" \
-                        --menu "Selecione o jogo para baixar:" \
+                        --title "$platform_name  [$current_letter] ($count jogos)" \
+                        --menu "D-Pad: navegar | PREV/NEXT: trocar letra" \
                         $DLG_H $DLG_W 8 \
                         "${all_entries[@]}" \
                         2>"$CURR_TTY") || return
 
-        # Navegacao
+        # Navegacao por letra
         if [ "$choice" = "PREV" ]; then
-            offset=$((offset - page_size))
-            [ "$offset" -lt 0 ] && offset=0
+            current_idx=$((current_idx - 1))
+            [ "$current_idx" -lt 0 ] && current_idx=0
             continue
         elif [ "$choice" = "NEXT" ]; then
-            offset=$next_offset
+            current_idx=$((current_idx + 1))
+            [ "$current_idx" -ge ${#letters_arr[@]} ] && current_idx=$((${#letters_arr[@]} - 1))
             continue
         fi
 
-        # Encontra o arquivo do jogo selecionado
-        local selected_file=""
-        local selected_name=""
+        # Encontra o arquivo do jogo
+        local selected_file="" selected_name=""
         for i in "${!rom_ids[@]}"; do
             if [ "${rom_ids[$i]}" = "$choice" ]; then
                 selected_file="${rom_files[$i]}"
