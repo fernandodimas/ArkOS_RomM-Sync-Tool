@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.5.13"
+readonly VERSION="1.5.14"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly CONF_VERSION="1.4.0" # Versao de configuracao — usado por rommsync_updater.sh
 TMP_DIR="/dev/shm/rommsync"    # RAM mais rapida que /tmp
@@ -1506,8 +1506,12 @@ self_update() {
 # --- Menu Principal -------------------------------------------------------
 
 main_menu() {
-    # Verificacao de servidor (rápida, sem bloquear muito)
+    # Verificacao de servidor com indicador visual
     SERVER_STATUS="?"
+    dialog --backtitle "$BACKTITLE" \
+           --infobox "Verificando servidor..." \
+           3 40 > "$CURR_TTY"
+
     if load_config 2>/dev/null; then
         local code=""
         code=$(curl -s -k --connect-timeout 5 --max-time 10 \
