@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.5.10"
+readonly VERSION="1.5.11"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly CONF_VERSION="1.4.0" # Versao de configuracao — usado por rommsync_updater.sh
 TMP_DIR="/dev/shm/rommsync"    # RAM mais rapida que /tmp
@@ -1578,40 +1578,16 @@ main_menu() {
                         "1" "Backup de Saves" \
                         "2" "Download de Jogos" \
                         "3" "Reconfigurar Servidor" \
-                        "4" "Status da Conexao" \
-                        "5" "Ver Log" \
-                        "6" "Limpar Cache" \
-                        "7" "Atualizar Script${UPDATE_VERSION:+ (v$UPDATE_VERSION disponivel)}" \
-                        "8" "Sair" \
+                        "4" "Atualizar Script${UPDATE_VERSION:+ (v$UPDATE_VERSION disponivel)}" \
+                        "5" "Sair" \
                         2>"$CURR_TTY") || break
 
         case "$choice" in
             1) backup_saves ;;
             2) list_platforms ;;
             3) reconfigure ;;
-            4) show_status ;;
+            4) self_update ;;
             5)
-                if [ -f "$LOG_FILE" ]; then
-                    dialog --backtitle "$BACKTITLE" \
-                           --title "Log" \
-                           --textbox "$LOG_FILE" \
-                           $DLG_H $DLG_W > "$CURR_TTY"
-                else
-                    dialog --backtitle "$BACKTITLE" \
-                           --title "Log" \
-                           --msgbox "Nenhum log disponivel ainda." \
-                           $DLG_H $DLG_W > "$CURR_TTY"
-                fi
-                ;;
-            6)
-                FORCE_REFRESH=1 cache_invalidate_all
-                dialog --backtitle "$BACKTITLE" \
-                       --title "Cache Limpo" \
-                       --msgbox "Cache de API limpo.\n\nProximas requisicoes buscarao dados frescos do servidor." \
-                       $DLG_H $DLG_W > "$CURR_TTY"
-                ;;
-            7) self_update ;;
-            8)
                 dialog --backtitle "$BACKTITLE" \
                        --title "Sair" \
                        --yesno "Deseja sair do $SCRIPT_NAME?" \
