@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.5.3"
+readonly VERSION="1.5.4"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly CONF_VERSION="1.4.0" # Versao de configuracao — usado por rommsync_updater.sh
 TMP_DIR="/dev/shm/rommsync"    # RAM mais rapida que /tmp
@@ -387,7 +387,7 @@ load_config() {
             log "Config sem versao detectada, executando migracao..."
             migrate_config
         fi
-        printf '[DEBUG] load_config url=%s user=%s auth=%s\n' "$ROMM_URL" "$ROMM_USER" "${ROMM_AUTH_B64:0:20}" >> /tmp/rommsync_debug.log
+        printf '[D]load url=%s\n' "$ROMM_URL" >> /tmp/rommsync_debug.log
         return 0
     fi
     return 1
@@ -614,7 +614,7 @@ api_get() {
     local tmp_err="${TMP_DIR}/curl_error_$$.tmp"
     local full_url="${ROMM_URL}${endpoint}"
     mkdir -p "$TMP_DIR" 2>/dev/null || true
-    printf '[DEBUG] api_get url=%s\n' "$full_url" >> /tmp/rommsync_debug.log
+    printf '[D]api url=%s\n' "$full_url" >> /tmp/rommsync_debug.log
     # shellcheck disable=SC2086
     http_code=$(curl $CURL_OPTS \
                     -w '%{http_code}' \
@@ -628,7 +628,7 @@ api_get() {
     curl_err=$(cat "$tmp_err" 2>/dev/null) || true
     rm -f "$tmp_body" "$tmp_err"
 
-    printf '[DEBUG] api_get http=%s bytes=%s err=%s\n' "$http_code" "${#response}" "$curl_err" >> /tmp/rommsync_debug.log
+    printf '[D]api http=%s bytes=%s\n' "$http_code" "${#response}" >> /tmp/rommsync_debug.log
     log "API GET: $endpoint -> HTTP $http_code (${#response} bytes)"
     [ -n "$curl_err" ] && log "API GET curl stderr: $curl_err"
 
@@ -1307,7 +1307,7 @@ show_status() {
                          -H "Authorization: Basic $ROMM_AUTH_B64" \
                          "${ROMM_URL}/api/heartbeat" 2>/dev/null) || true
         http_code="${http_code:-000}"
-        printf '[DEBUG] heartbeat url=%s/%s http=%s\n' "$ROMM_URL" "api/heartbeat" "$http_code" >> /tmp/rommsync_debug.log
+        printf '[D]hb http=%s\n' "$http_code" >> /tmp/rommsync_debug.log
 
         # Mede latencia (time_total em ms) sem bc
         local latency_raw=""
@@ -1779,6 +1779,23 @@ main() {
         # Recarrega config apos salvar
         load_config || exit 1
     fi
+
+    # --- Teste de conectividade -----------------------------------------------
+    local host_only port_only
+    host_only=$(echo "$ROMM_URL" | sed 's|https\?://||' | cut -d'/' -f1 | cut -d':' -f1)
+    port_only=$(echo "$ROMM_URL" | sed 's|https\?://||' | cut -d'/' -f1 | cut -d':' -f2)
+    port_only="${port_only:-80}"
+    log "Teste de rede: host=$host_only port=$port_only"
+
+    # Testa TCP conectivity
+    if ! (echo >/dev/tcp/"$host_only"/"$port_only") 2>/dev/null; then
+        dialog --backtitle "$BACKTITLE" \
+               --title "Servidor Inacessivel" \
+               --msgbox "Nao foi possivel conectar em:\n$ROMM_URL\n\nHost: $host_only\nPorta: $port_only\n\nVerifique:\n- Se o servidor esta ligado\n- Se a rede WiFi esta conectada\n- Se IP/porta estao corretos" \
+               $DLG_H $DLG_W > "$CURR_TTY"
+        return 1
+    fi
+    log "TCP connect OK: $host_only:$port_only"
 
     main_menu
 }
