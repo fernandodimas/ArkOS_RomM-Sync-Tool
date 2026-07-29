@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.5.9"
+readonly VERSION="1.5.10"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly CONF_VERSION="1.4.0" # Versao de configuracao — usado por rommsync_updater.sh
 TMP_DIR="/dev/shm/rommsync"    # RAM mais rapida que /tmp
@@ -1503,16 +1503,75 @@ self_update() {
     fi
 }
 
-# --- Temas de Cores Dialog ------------------------------------------------
+# --- Verificacao de atualizacao em background -------------------------------
+UPDATE_AVAILABLE=""
+UPDATE_VERSION=""
+SERVER_STATUS="?"
 
+bg_check_update() {
+    if [ "${INTERNET_OK:-0}" != "1" ]; then
+        return 0
+    fi
+    if [ "${AUTOUPDATE:-on}" = "off" ]; then
+        return 0
+    fi
+    local tmp_check="${TMP_DIR}/rommsync_remote_ver.sh"
+    mkdir -p "$TMP_DIR" 2>/dev/null || true
+    local latest_ver=""
+    if wget -q --no-check-certificate --timeout=10 \
+             -O "$tmp_check" "$GITHUB_RAW" 2>/dev/null; then
+        latest_ver=$(grep -m1 'readonly VERSION=' "$tmp_check" \
+                     | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"') || true
+    fi
+    if [ -z "$latest_ver" ]; then
+        latest_ver=$(curl -sf --connect-timeout 5 --max-time 10 "$GITHUB_RAW" 2>/dev/null \
+                     | grep -m1 'readonly VERSION=' \
+                     | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"') || true
+    fi
+    if [ -n "$latest_ver" ] && _ver_gt "$latest_ver" "$VERSION"; then
+        UPDATE_AVAILABLE="1"
+        UPDATE_VERSION="$latest_ver"
+        log "Atualizacao disponivel: v$latest_ver (instalado: v$VERSION)"
+    fi
+}
 
+bg_check_server() {
+    if ! load_config 2>/dev/null; then
+        SERVER_STATUS="!"
+        return 0
+    fi
+    local code=""
+    code=$(curl -s -k --connect-timeout 5 --max-time 10 \
+                 -o /dev/null -w '%{http_code}' \
+                 -H "Authorization: Basic $ROMM_AUTH_B64" \
+                 "${ROMM_URL}/api/heartbeat" 2>/dev/null) || code="000"
+    case "$code" in
+        200) SERVER_STATUS="OK" ;;
+        401) SERVER_STATUS="AUTH" ;;
+        *)   SERVER_STATUS="ERR" ;;
+    esac
+    log "Server check: HTTP $code -> $SERVER_STATUS"
+}
 
 # --- Menu Principal -------------------------------------------------------
 
 main_menu() {
+    # Verificacoes em background (nao bloqueiam o menu)
+    bg_check_update &
+    bg_check_server &
+    wait
+
     while true; do
+        # Monta header dinamico
+        local hdr=""
+        [ "$SERVER_STATUS" = "OK" ]   && hdr="[Servidor: OK]"
+        [ "$SERVER_STATUS" = "AUTH" ] && hdr="[Servidor: AUTH ERR]"
+        [ "$SERVER_STATUS" = "ERR" ]  && hdr="[Servidor: OFFLINE]"
+        [ "$SERVER_STATUS" = "!" ]    && hdr="[Sem config]"
+        [ "$UPDATE_AVAILABLE" = "1" ] && hdr="$hdr [Update: v$UPDATE_VERSION]"
+
         local choice
-        choice=$(dialog --output-fd 1 --backtitle "$SCRIPT_NAME v$VERSION" \
+        choice=$(dialog --output-fd 1 --backtitle "$SCRIPT_NAME v$VERSION $hdr" \
                         --title "Menu Principal" \
                         --menu "Use D-Pad para navegar:" \
                         $DLG_H $DLG_W 10 \
@@ -1522,7 +1581,7 @@ main_menu() {
                         "4" "Status da Conexao" \
                         "5" "Ver Log" \
                         "6" "Limpar Cache" \
-                        "7" "Atualizar Script" \
+                        "7" "Atualizar Script${UPDATE_VERSION:+ (v$UPDATE_VERSION disponivel)}" \
                         "8" "Sair" \
                         2>"$CURR_TTY") || break
 
@@ -1756,7 +1815,6 @@ main() {
 
     check_dependencies
     check_wifi
-    check_update || log "AVISO: check_update falhou, continuando sem atualizacao."
 
     # Configuracao inicial se nao existir
     if ! load_config; then
