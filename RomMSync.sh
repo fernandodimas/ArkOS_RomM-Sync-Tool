@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.4.6"
+readonly VERSION="1.4.7"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly CONF_VERSION="1.4.0" # Versão de configuração — usado por rommsync_updater.sh
 TMP_DIR="/dev/shm/rommsync"    # RAM mais rápida que /tmp
@@ -607,14 +607,23 @@ api_get() {
 
     # Miss — busca da API
     local response=""
+    local http_code=""
+    local tmp_body="${TMP_DIR}/api_response_$$.json"
     # shellcheck disable=SC2086
-    response=$(curl $CURL_OPTS \
+    http_code=$(curl $CURL_OPTS \
+                    -w '%{http_code}' \
+                    -o "$tmp_body" \
                     -H "Authorization: Basic $ROMM_AUTH_B64" \
                     -H "Accept: application/json" \
-                    "${ROMM_URL}${endpoint}" 2>&1) || true
+                    "${ROMM_URL}${endpoint}" 2>/dev/null) || true
+    http_code="${http_code:-000}"
+    response=$(cat "$tmp_body" 2>/dev/null) || true
+    rm -f "$tmp_body"
+
+    log "API GET: $endpoint → HTTP $http_code (${#response} bytes)"
 
     if [ -z "$response" ]; then
-        log "API GET vazio: $endpoint"
+        log "API GET vazio: $endpoint (HTTP $http_code)"
     fi
 
     # Armazena no cache se foi resposta válida
