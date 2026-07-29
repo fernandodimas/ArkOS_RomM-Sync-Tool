@@ -12,11 +12,11 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.4.2"
+readonly VERSION="1.4.3"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly CONF_VERSION="1.4.0" # Versão de configuração — usado por rommsync_updater.sh
-readonly TMP_DIR="/dev/shm/rommsync"    # RAM mais rápida que /tmp
-readonly FALLBACK_TMP_DIR="/tmp/rommsync"
+TMP_DIR="/dev/shm/rommsync"    # RAM mais rápida que /tmp
+FALLBACK_TMP_DIR="/tmp/rommsync"
 # Raízes onde o ArkOS armazena ROMs e saves
 readonly ROMS_ROOTS=("/roms" "/roms2")
 readonly LOG_FILE="/tmp/rommsync.log"
@@ -24,12 +24,13 @@ readonly LOG_FILE="/tmp/rommsync.log"
 # Garante uso de /dev/shm, fallback em caso de falha
 guarantee_tmp() {
     if [ -d "/dev/shm" ]; then
-        readonly TMP_DIR="/dev/shm/rommsync"
+        TMP_DIR="/dev/shm/rommsync"
         log "Usando RAM (/dev/shm) para arquivos temporários."
     else
-        readonly TMP_DIR="$FALLBACK_TMP_DIR"
+        TMP_DIR="$FALLBACK_TMP_DIR"
         log "/dev/shm não disponível, usando $TMP_DIR (flash)."
     fi
+    CACHE_DIR="${TMP_DIR}/cache"
     mkdir -p "$TMP_DIR"
     cache_dir
 }
@@ -41,8 +42,8 @@ guarantee_tmp() {
 # Formato do nome: <cache_key>.json
 # Formato do conteúdo: {"ts":<unix_timestamp>,"data":<json_bruto>}
 
-readonly CACHE_DIR="${TMP_DIR}/cache"
-readonly CACHE_TTL="${CACHE_TTL:-3600}"
+CACHE_DIR="${TMP_DIR}/cache"
+CACHE_TTL="${CACHE_TTL:-3600}"
 
 cache_dir() {
     mkdir -p "$CACHE_DIR"
