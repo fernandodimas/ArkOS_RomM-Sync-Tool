@@ -7,12 +7,15 @@
 
 set -euo pipefail
 
+# Debug: loga linha exata do crash (remover após diagnóstico)
+trap 'echo "[$(date)] CRASH linha $LINENO: $BASH_COMMAND" >> /tmp/rommsync_crash.log' ERR
+
 # Garante terminal compatível com framebuffer do ArkOS (necessário para dialog)
 export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.4.3"
+readonly VERSION="1.4.4"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly CONF_VERSION="1.4.0" # Versão de configuração — usado por rommsync_updater.sh
 TMP_DIR="/dev/shm/rommsync"    # RAM mais rápida que /tmp
@@ -1752,7 +1755,9 @@ check_update() {
 # --- Ponto de Entrada -----------------------------------------------------
 
 main() {
+    echo "[DEBUG] main() iniciado" >> /tmp/rommsync_crash.log
     ensure_tmp
+    echo "[DEBUG] ensure_tmp OK" >> /tmp/rommsync_crash.log
     log "=== $SCRIPT_NAME v$VERSION iniciado ==="
 
     # --- Inicialização do terminal -------------------------------------------
@@ -1782,6 +1787,7 @@ main() {
     fi
 
     # Detecta tamanho do terminal para dialog
+    echo "[DEBUG] stty antes" >> /tmp/rommsync_crash.log
     local cols rows
     cols=$(stty size 2>/dev/null | cut -d' ' -f2)
     rows=$(stty size 2>/dev/null | cut -d' ' -f1)
@@ -1794,15 +1800,20 @@ main() {
     DLG_H=$((rows - 4))
 
     # --- Temas de Cores Dialog -----------------------------------------------
-    # Aplica tema selecionado pelo usuário (ou padrão ArkOS)
+    echo "[DEBUG] apply_theme antes" >> /tmp/rommsync_crash.log
     apply_theme "${DIALOGRC_THEME:-arkos}"
+    echo "[DEBUG] apply_theme OK, DLG_W=$DLG_W DLG_H=$DLG_H" >> /tmp/rommsync_crash.log
 
     # Registra limpeza para qualquer forma de saída
     trap '_cleanup_gptokeyb; clear; log "=== Encerrado ==="' EXIT INT TERM
 
+    echo "[DEBUG] check_dependencies antes" >> /tmp/rommsync_crash.log
     check_dependencies
+    echo "[DEBUG] check_dependencies OK" >> /tmp/rommsync_crash.log
     check_wifi
+    echo "[DEBUG] check_wifi OK" >> /tmp/rommsync_crash.log
     check_update || log "AVISO: check_update falhou, continuando sem atualização."
+    echo "[DEBUG] check_update OK" >> /tmp/rommsync_crash.log
 
     # Configuração inicial se não existir
     if ! load_config; then
