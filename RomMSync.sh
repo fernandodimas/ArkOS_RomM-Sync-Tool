@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.5.6"
+readonly VERSION="1.5.7"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly CONF_VERSION="1.4.0" # Versao de configuracao — usado por rommsync_updater.sh
 TMP_DIR="/dev/shm/rommsync"    # RAM mais rapida que /tmp
@@ -1791,20 +1791,27 @@ main() {
     port_only="${port_only:-80}"
     log "Teste de rede: host=$host_only port=$port_only"
 
-    # Testa conectividade via curl (mais compativel que /dev/tcp)
-    local tcp_ok=0
+    # Testa conectividade via curl
+    local hb_code hb_err
+    hb_err="${TMP_DIR}/hb_err_$$.tmp"
     # shellcheck disable=SC2086
-    curl $CURL_OPTS -o /dev/null -w "%{http_code}" \
-         "${ROMM_URL}/api/heartbeat" >/dev/null 2>&1 && tcp_ok=1 || true
+    hb_code=$(curl $CURL_OPTS -o /dev/null -w "%{http_code}" \
+                    -H "Authorization: Basic $ROMM_AUTH_B64" \
+                    "${ROMM_URL}/api/heartbeat" 2>"$hb_err") || true
+    hb_code="${hb_code:-000}"
+    local hb_err_msg
+    hb_err_msg=$(cat "$hb_err" 2>/dev/null) || true
+    rm -f "$hb_err"
+    log "Heartbeat test: HTTP $hb_code err=$hb_err_msg"
 
-    if [ "$tcp_ok" -eq 0 ]; then
+    if [ "$hb_code" = "000" ]; then
         dialog --backtitle "$BACKTITLE" \
                --title "Servidor Inacessivel" \
-               --msgbox "Nao foi possivel conectar em:\n$ROMM_URL\n\nHost: $host_only\nPorta: $port_only\n\nVerifique:\n- Se o servidor esta ligado\n- Se a rede WiFi esta conectada\n- Se IP/porta estao corretos" \
+               --msgbox "Nao foi possivel conectar em:\n$ROMM_URL\n\nHost: $host_only\nPorta: $port_only\n\nErro curl: $hb_err_msg\n\nVerifique:\n- Se o servidor esta ligado\n- Se a rede WiFi esta conectada\n- Se IP/porta estao corretos" \
                $DLG_H $DLG_W > "$CURR_TTY"
         return 1
     fi
-    log "Heartbeat OK: $host_only:$port_only"
+    log "Heartbeat OK: HTTP $hb_code"
 
     main_menu
 }
