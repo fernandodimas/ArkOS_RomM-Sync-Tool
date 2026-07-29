@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.5.5"
+readonly VERSION="1.5.6"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly CONF_VERSION="1.4.0" # Versao de configuracao — usado por rommsync_updater.sh
 TMP_DIR="/dev/shm/rommsync"    # RAM mais rapida que /tmp
@@ -1791,15 +1791,20 @@ main() {
     port_only="${port_only:-80}"
     log "Teste de rede: host=$host_only port=$port_only"
 
-    # Testa TCP conectivity
-    if ! (echo >/dev/tcp/"$host_only"/"$port_only") 2>/dev/null; then
+    # Testa conectividade via curl (mais compativel que /dev/tcp)
+    local tcp_ok=0
+    # shellcheck disable=SC2086
+    curl $CURL_OPTS -o /dev/null -w "%{http_code}" \
+         "${ROMM_URL}/api/heartbeat" >/dev/null 2>&1 && tcp_ok=1 || true
+
+    if [ "$tcp_ok" -eq 0 ]; then
         dialog --backtitle "$BACKTITLE" \
                --title "Servidor Inacessivel" \
                --msgbox "Nao foi possivel conectar em:\n$ROMM_URL\n\nHost: $host_only\nPorta: $port_only\n\nVerifique:\n- Se o servidor esta ligado\n- Se a rede WiFi esta conectada\n- Se IP/porta estao corretos" \
                $DLG_H $DLG_W > "$CURR_TTY"
         return 1
     fi
-    log "TCP connect OK: $host_only:$port_only"
+    log "Heartbeat OK: $host_only:$port_only"
 
     main_menu
 }
