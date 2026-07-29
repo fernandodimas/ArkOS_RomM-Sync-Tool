@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.5.14"
+readonly VERSION="1.5.15"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly CONF_VERSION="1.4.0" # Versao de configuracao — usado por rommsync_updater.sh
 TMP_DIR="/dev/shm/rommsync"    # RAM mais rapida que /tmp
@@ -1109,94 +1109,115 @@ list_games() {
     local platform_id="$1"
     local platform_slug="$2"
     local platform_name="$3"
+    local page_size=50
+    local offset=0
 
-    dialog --backtitle "$BACKTITLE" \
-           --infobox "Carregando jogos de '$platform_name'..." \
-           5 $DLG_W > "$CURR_TTY"
-
-    local response
-    response=$(api_get "/api/roms?platform_id=${platform_id}&limit=5000&offset=0")
-
-    if [ -z "$response" ] || echo "$response" | grep -q '"detail"'; then
+    while true; do
         dialog --backtitle "$BACKTITLE" \
-               --title "Erro" \
-               --msgbox "Erro ao carregar jogos:\n$(echo "$response" | jq -r '.detail // "Sem resposta"' 2>/dev/null)" \
-               $DLG_H $DLG_W > "$CURR_TTY"
-        return
-    fi
+               --infobox "Carregando jogos de '$platform_name'..." \
+               5 $DLG_W > "$CURR_TTY"
 
-    # Extrai jogos
-    local total
-    total=$(echo "$response" | jq '.items | length' 2>/dev/null || echo "0")
+        local response
+        response=$(api_get "/api/roms?platform_id=${platform_id}&limit=${page_size}&offset=${offset}")
 
-    if [ "$total" = "0" ]; then
-        dialog --backtitle "$BACKTITLE" \
-               --title "Aviso" \
-               --msgbox "Nenhum jogo encontrado para '$platform_name'." \
-               $DLG_H $DLG_W > "$CURR_TTY"
-        return
-    fi
-
-    # --- SKILL: JSON-to-Menu Mapping (lista de ROMs) -------------------------
-    # Extrai id | file_name | nome | tamanho em uma unica passagem pelo jq,
-    # evitando multiplos jq por linha (lentissimo no ARM com listas grandes).
-    # Delimitador interno: ASCII SOH (\x01) — nao aparece em nomes de arquivo.
-    # -------------------------------------------------------------------------
-    local menu_entries=()
-    local rom_ids=()
-    local rom_names=()
-    local rom_files=()
-
-    while IFS=$'\x01' read -r rid rfile rname rsize; do
-        [ -z "$rid" ] || [ "$rid" = "null" ] && continue
-
-        # Formata tamanho de forma eficiente (sem bc — usa aritmetica bash)
-        local size_str
-        if   [ "$rsize" -gt 1073741824 ] 2>/dev/null; then
-            size_str="$(( rsize / 1073741824 ))GB"
-        elif [ "$rsize" -gt 1048576 ] 2>/dev/null; then
-            size_str="$(( rsize / 1048576 ))MB"
-        elif [ "$rsize" -gt 1024 ] 2>/dev/null; then
-            size_str="$(( rsize / 1024 ))KB"
-        else
-            size_str="${rsize}B"
+        if [ -z "$response" ] || echo "$response" | grep -q '"detail"'; then
+            dialog --backtitle "$BACKTITLE" \
+                   --title "Erro" \
+                   --msgbox "Erro ao carregar jogos:\n$(echo "$response" | jq -r '.detail // "Sem resposta"' 2>/dev/null)" \
+                   $DLG_H $DLG_W > "$CURR_TTY"
+            return
         fi
 
-        rom_ids+=("$rid")
-        rom_names+=("$rname")
-        rom_files+=("$rfile")
-        # Label: nome truncado + tamanho — sem quebra por espaco
-        menu_entries+=("$rid" "${rname:0:36}  [${size_str}]")
-    done < <(
-        # Uma unica chamada ao jq por toda a lista — eficiente no ARM
-        echo "$response" | jq -r \
-            '.items[] | (.id | tostring)
-                + "\u0001" + .file_name
-                + "\u0001" + (.name // .file_name)
-                + "\u0001" + ((.file_size_bytes // 0) | tostring)' \
-            2>/dev/null
-    )
+        local total
+        total=$(echo "$response" | jq '.items | length' 2>/dev/null || echo "0")
 
-    local choice
-    choice=$(dialog --output-fd 1 --backtitle "$BACKTITLE" \
-                    --title "$platform_name ($total jogos)" \
-                    --menu "Selecione o jogo para baixar:" \
-                    $DLG_H $DLG_W 8 \
-                    "${menu_entries[@]}" \
-                    2>"$CURR_TTY") || return
-
-    # Encontra o arquivo do jogo
-    local selected_file=""
-    local selected_name=""
-    for i in "${!rom_ids[@]}"; do
-        if [ "${rom_ids[$i]}" = "$choice" ]; then
-            selected_file="${rom_files[$i]}"
-            selected_name="${rom_names[$i]}"
-            break
+        if [ "$total" = "0" ] && [ "$offset" -eq 0 ]; then
+            dialog --backtitle "$BACKTITLE" \
+                   --title "Aviso" \
+                   --msgbox "Nenhum jogo encontrado para '$platform_name'." \
+                   $DLG_H $DLG_W > "$CURR_TTY"
+            return
         fi
+
+        # Monta menu com jogos desta pagina
+        local menu_entries=()
+        local rom_ids=()
+        local rom_names=()
+        local rom_files=()
+        local idx=0
+
+        while IFS=$'\x01' read -r rid rfile rname rsize; do
+            [ -z "$rid" ] || [ "$rid" = "null" ] && continue
+            local size_str
+            if   [ "$rsize" -gt 1073741824 ] 2>/dev/null; then
+                size_str="$(( rsize / 1073741824 ))GB"
+            elif [ "$rsize" -gt 1048576 ] 2>/dev/null; then
+                size_str="$(( rsize / 1048576 ))MB"
+            elif [ "$rsize" -gt 1024 ] 2>/dev/null; then
+                size_str="$(( rsize / 1024 ))KB"
+            else
+                size_str="${rsize}B"
+            fi
+            rom_ids+=("$rid")
+            rom_names+=("$rname")
+            rom_files+=("$rfile")
+            menu_entries+=("$rid" "${rname:0:36}  [${size_str}]")
+            idx=$((idx + 1))
+        done < <(
+            echo "$response" | jq -r \
+                '.items[] | (.id | tostring)
+                    + "\u0001" + .file_name
+                    + "\u0001" + (.name // .file_name)
+                    + "\u0001" + ((.file_size_bytes // 0) | tostring)' \
+                2>/dev/null
+        )
+
+        # Adiciona navegacao de paginas
+        local nav_entries=()
+        [ "$offset" -gt 0 ] && nav_entries+=("PREV" "<< Pagina anterior")
+        local next_offset=$((offset + page_size))
+        if [ "$idx" -eq "$page_size" ]; then
+            nav_entries+=("NEXT" "Proxima pagina >>")
+        fi
+
+        # Header com info da paginacao
+        local page_info="Pagina $((offset / page_size + 1))"
+        [ "$idx" -lt "$page_size" ] && page_info="$page_info (ultima)"
+
+        local all_entries=("${menu_entries[@]}" "${nav_entries[@]}")
+
+        local choice
+        choice=$(dialog --output-fd 1 --backtitle "$BACKTITLE" \
+                        --title "$platform_name - $page_info" \
+                        --menu "Selecione o jogo para baixar:" \
+                        $DLG_H $DLG_W 8 \
+                        "${all_entries[@]}" \
+                        2>"$CURR_TTY") || return
+
+        # Navegacao
+        if [ "$choice" = "PREV" ]; then
+            offset=$((offset - page_size))
+            [ "$offset" -lt 0 ] && offset=0
+            continue
+        elif [ "$choice" = "NEXT" ]; then
+            offset=$next_offset
+            continue
+        fi
+
+        # Encontra o arquivo do jogo selecionado
+        local selected_file=""
+        local selected_name=""
+        for i in "${!rom_ids[@]}"; do
+            if [ "${rom_ids[$i]}" = "$choice" ]; then
+                selected_file="${rom_files[$i]}"
+                selected_name="${rom_names[$i]}"
+                break
+            fi
+        done
+
+        download_rom "$choice" "$selected_file" "$selected_name" "$platform_slug"
+        return
     done
-
-    download_rom "$choice" "$selected_file" "$selected_name" "$platform_slug"
 }
 
 download_rom() {
