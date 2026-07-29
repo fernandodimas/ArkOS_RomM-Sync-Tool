@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.5.4"
+readonly VERSION="1.5.5"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly CONF_VERSION="1.4.0" # Versao de configuracao — usado por rommsync_updater.sh
 TMP_DIR="/dev/shm/rommsync"    # RAM mais rapida que /tmp
@@ -382,12 +382,16 @@ load_config() {
         source "$CONFIG_FILE"
         # Normaliza URL - remove barra final
         ROMM_URL="${ROMM_URL%/}"
+        # Regenera AUTH_B64 a partir de USER e PASS (garante sincronismo)
+        if [ -n "${ROMM_USER:-}" ] && [ -n "${ROMM_PASS:-}" ]; then
+            ROMM_AUTH_B64=$(printf '%s:%s' "$ROMM_USER" "$ROMM_PASS" | base64 | tr -d '\n')
+        fi
         # Se nao tem versionamento, e config antiga — roda migrator
         if [ -z "${ROMMSYNC_CONF_VERSION:-}" ]; then
             log "Config sem versao detectada, executando migracao..."
             migrate_config
         fi
-        printf '[D]load url=%s\n' "$ROMM_URL" >> /tmp/rommsync_debug.log
+        printf '[D]load url=%s user=%s\n' "$ROMM_URL" "$ROMM_USER" >> /tmp/rommsync_debug.log
         return 0
     fi
     return 1
