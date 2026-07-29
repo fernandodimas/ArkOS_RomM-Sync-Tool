@@ -15,7 +15,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.4.4"
+readonly VERSION="1.4.5"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly CONF_VERSION="1.4.0" # Versão de configuração — usado por rommsync_updater.sh
 TMP_DIR="/dev/shm/rommsync"    # RAM mais rápida que /tmp
@@ -1789,8 +1789,8 @@ main() {
     # Detecta tamanho do terminal para dialog
     echo "[DEBUG] stty antes" >> /tmp/rommsync_crash.log
     local cols rows
-    cols=$(stty size 2>/dev/null | cut -d' ' -f2)
-    rows=$(stty size 2>/dev/null | cut -d' ' -f1)
+    cols=$(stty size 2>/dev/null | cut -d' ' -f2) || true
+    rows=$(stty size 2>/dev/null | cut -d' ' -f1) || true
     
     # Fallback para padrões se stty falhar (ex: ambiente sem terminal)
     cols=${cols:-72}
