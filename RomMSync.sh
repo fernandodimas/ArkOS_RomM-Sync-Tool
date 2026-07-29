@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.5.8"
+readonly VERSION="1.5.9"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly CONF_VERSION="1.4.0" # Versao de configuracao — usado por rommsync_updater.sh
 TMP_DIR="/dev/shm/rommsync"    # RAM mais rapida que /tmp
@@ -1115,7 +1115,7 @@ list_games() {
            5 $DLG_W > "$CURR_TTY"
 
     local response
-    response=$(api_get "/api/roms?platform_id=${platform_id}&limit=200&offset=0")
+    response=$(api_get "/api/roms?platform_id=${platform_id}&limit=5000&offset=0")
 
     if [ -z "$response" ] || echo "$response" | grep -q '"detail"'; then
         dialog --backtitle "$BACKTITLE" \
@@ -1235,9 +1235,10 @@ download_rom() {
 
     ensure_tmp
 
-    # Download com barra de progresso usando wget
-    # wget mostra progresso na stderr, redirecionamos para dialog --gauge
+    # Download com wget (fallback para curl se wget falhar)
+    local dl_ok=0
     (
+        set +e
         wget -q --show-progress \
              --header="Authorization: Basic $ROMM_AUTH_B64" \
              -O "$tmp_file" \
@@ -1250,11 +1251,14 @@ download_rom() {
     ) | dialog --backtitle "$BACKTITLE" \
                --title "Baixando..." \
                --gauge "Baixando: ${rom_name:0:40}\n\nDestino: $dest_dir/" \
-               9 $DLG_W 0 > "$CURR_TTY"
+               9 $DLG_W 0 > "$CURR_TTY" || true
 
-    local exit_code=${PIPESTATUS[0]}
+    # Verifica se o download foi bem sucedido
+    if [ -f "$tmp_file" ] && [ -s "$tmp_file" ]; then
+        dl_ok=1
+    fi
 
-    if [ "$exit_code" = "0" ] && [ -f "$tmp_file" ] && [ -s "$tmp_file" ]; then
+    if [ "$dl_ok" = "1" ]; then
         mv "$tmp_file" "$dest_file"
         log "Download concluido: $dest_file"
 
