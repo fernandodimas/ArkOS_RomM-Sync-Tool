@@ -1,23 +1,23 @@
 #!/bin/bash
 # =============================================================================
 # RomM-Sync-Tool v1.1
-# Utilitário de sincronização de ROMs e Saves para ArkOS via API do RomM
-# Desenvolvido para consoles portáteis ARM (R36S, RG351P, RG353P, etc.)
+# Utilitario de sincronizacao de ROMs e Saves para ArkOS via API do RomM
+# Desenvolvido para consoles portateis ARM (R36S, RG351P, RG353P, etc.)
 # =============================================================================
 
 set -euo pipefail
 
-# Garante terminal compatível com framebuffer do ArkOS (necessário para dialog)
+# Garante terminal compativel com framebuffer do ArkOS (necessario para dialog)
 export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.4.7"
+readonly VERSION="1.5.1"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
-readonly CONF_VERSION="1.4.0" # Versão de configuração — usado por rommsync_updater.sh
-TMP_DIR="/dev/shm/rommsync"    # RAM mais rápida que /tmp
+readonly CONF_VERSION="1.4.0" # Versao de configuracao — usado por rommsync_updater.sh
+TMP_DIR="/dev/shm/rommsync"    # RAM mais rapida que /tmp
 FALLBACK_TMP_DIR="/tmp/rommsync"
-# Raízes onde o ArkOS armazena ROMs e saves
+# Raizes onde o ArkOS armazena ROMs e saves
 readonly ROMS_ROOTS=("/roms" "/roms2")
 readonly LOG_FILE="/tmp/rommsync.log"
 
@@ -25,10 +25,10 @@ readonly LOG_FILE="/tmp/rommsync.log"
 guarantee_tmp() {
     if [ -d "/dev/shm" ]; then
         TMP_DIR="/dev/shm/rommsync"
-        log "Usando RAM (/dev/shm) para arquivos temporários."
+        log "Usando RAM (/dev/shm) para arquivos temporarios."
     else
         TMP_DIR="$FALLBACK_TMP_DIR"
-        log "/dev/shm não disponível, usando $TMP_DIR (flash)."
+        log "/dev/shm nao disponivel, usando $TMP_DIR (flash)."
     fi
     CACHE_DIR="${TMP_DIR}/cache"
     mkdir -p "$TMP_DIR"
@@ -37,10 +37,10 @@ guarantee_tmp() {
 
 # --- Cache Layer ---------------------------------------------------------
 # Cache de respostas da API RomM em /dev/shm/rommsync/cache/
-# Cada cache é um arquivo JSON com metadata de timestamp.
-# TTL padrão: 1 hora (3600s). Pode ser sobrescrito por CACHE_TTL env var.
+# Cada cache e um arquivo JSON com metadata de timestamp.
+# TTL padrao: 1 hora (3600s). Pode ser sobrescrito por CACHE_TTL env var.
 # Formato do nome: <cache_key>.json
-# Formato do conteúdo: {"ts":<unix_timestamp>,"data":<json_bruto>}
+# Formato do conteudo: {"ts":<unix_timestamp>,"data":<json_bruto>}
 
 CACHE_DIR="${TMP_DIR}/cache"
 CACHE_TTL="${CACHE_TTL:-3600}"
@@ -93,28 +93,28 @@ cache_invalidate_all() {
 # GitHub — usado pelo auto-updater
 readonly GITHUB_REPO="fernandodimas/ArkOS_RomM-Sync-Tool"
 readonly GITHUB_RAW="https://raw.githubusercontent.com/${GITHUB_REPO}/main/RomMSync.sh"
-# Arquivo de config para import sem teclado (mesmo diretório do script)
+# Arquivo de config para import sem teclado (mesmo diretorio do script)
 # Ex: /opt/system/Tools/rommsync_config.conf
 readonly CONFIG_IMPORT_NAME="rommsync_config.conf"
-# Opções base de curl para API RomM
-# -k : ignora erros de certificado SSL (necessário em HTTPS auto-assinado)
+# Opcoes base de curl para API RomM
+# -k : ignora erros de certificado SSL (necessario em HTTPS auto-assinado)
 # --connect-timeout : evita travar por dezenas de segundos
 readonly CURL_OPTS="-s -k --connect-timeout 15 --max-time 60"
 
-# TTY da tela física do ArkOS
+# TTY da tela fisica do ArkOS
 CURR_TTY="/dev/tty1"
 
-# PID do gptokeyb (mapeador de controle → teclado)
+# PID do gptokeyb (mapeador de controle -> teclado)
 GPTOKEYB_PID=""
 # Caminho do gptokeyb e config no ArkOS4clone (@lcdyk)
 GPTOKEYB_BIN="/opt/inttools/gptokeyb"
 GPTOKEYB_CFG="/opt/inttools/keys.gptk"
 GPTOKEYB_DB="/opt/inttools/gamecontrollerdb.txt"
 
-# Backtitle global com versão — aparece no topo de TODOS os dialogs
+# Backtitle global com versao — aparece no topo de TODOS os dialogs
 BACKTITLE="$SCRIPT_NAME  v$VERSION"
 
-# Mapeamento: slug do RomM → pasta do ArkOS
+# Mapeamento: slug do RomM -> pasta do ArkOS
 # Formato: "romm-slug|arkos-folder"
 declare -A PLATFORM_MAP=(
     ["gba"]="gba"
@@ -170,14 +170,14 @@ declare -A PLATFORM_MAP=(
     ["sega-sg-1000"]="sg1000"
 )
 
-# --- Funções Utilitárias --------------------------------------------------
+# --- Funcoes Utilitarias --------------------------------------------------
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"
 }
 
 cleanup() {
-    log "Limpando arquivos temporários..."
+    log "Limpando arquivos temporarios..."
     rm -rf "$TMP_DIR"
     log "Finalizado."
 }
@@ -189,14 +189,14 @@ ensure_tmp() {
     guarantee_tmp
 }
 
-# check_dependencies: verifica cada ferramenta necessária e exibe tabela visual.
-# Skill ativada: Config Persistence — dependências checadas ANTES do menu principal.
+# check_dependencies: verifica cada ferramenta necessaria e exibe tabela visual.
+# Skill ativada: Config Persistence — dependencias checadas ANTES do menu principal.
 check_dependencies() {
-    # Ferramentas obrigatórias e suas descrições
+    # Ferramentas obrigatorias e suas descricoes
     declare -A DEP_DESC=(
         ["dialog"]="Interface TUI  (menus/caixas)"
         ["jq"]="Parser JSON    (dados da API)"
-        ["curl"]="HTTP Client    (chamadas à API)"
+        ["curl"]="HTTP Client    (chamadas a API)"
         ["zip"]="Compactador    (backup de saves)"
         ["wget"]="Downloader     (download de ROMs)"
     )
@@ -206,34 +206,34 @@ check_dependencies() {
     )
 
     local missing=()
-    local status_lines="DEPENDÊNCIA       STATUS         DESCRIÇÃO\n"
-    status_lines+="─────────────────────────────────────────────────────\n"
+    local status_lines="DEPENDENCIA       STATUS         DESCRICAO\n"
+    status_lines+="-----------------------------------------------------\n"
 
     for cmd in dialog jq curl zip wget; do
         if command -v "$cmd" &>/dev/null; then
-            status_lines+="$(printf '%-16s  %-13s  %s' "$cmd" '✓ OK' "${DEP_DESC[$cmd]}")\n"
+            status_lines+="$(printf '%-16s  %-13s  %s' "$cmd" 'OK OK' "${DEP_DESC[$cmd]}")\n"
         else
-            status_lines+="$(printf '%-16s  %-13s  %s' "$cmd" '✗ AUSENTE' "${DEP_DESC[$cmd]}")\n"
+            status_lines+="$(printf '%-16s  %-13s  %s' "$cmd" 'ERRO AUSENTE' "${DEP_DESC[$cmd]}")\n"
             missing+=("$cmd")
         fi
     done
 
-    status_lines+="─────────────────────────────────────────────────────\n"
+    status_lines+="-----------------------------------------------------\n"
 
-    # Checa rclone (opcional — influencia método de upload)
+    # Checa rclone (opcional — influencia metodo de upload)
     if command -v rclone &>/dev/null; then
         RCLONE_AVAILABLE=1
-        status_lines+="$(printf '%-16s  %-13s  %s' "rclone" '✓ Disponível' "${OPT_DESC[rclone]}")\n"
+        status_lines+="$(printf '%-16s  %-13s  %s' "rclone" 'OK Disponivel' "${OPT_DESC[rclone]}")\n"
     else
         RCLONE_AVAILABLE=0
-        status_lines+="$(printf '%-16s  %-13s  %s' "rclone" '○ Não inst.' "${OPT_DESC[rclone]}")\n"
+        status_lines+="$(printf '%-16s  %-13s  %s' "rclone" '○ Nao inst.' "${OPT_DESC[rclone]}")\n"
     fi
 
-    # Se há dependência faltando, oferece instalar ou sair
+    # Se ha dependencia faltando, oferece instalar ou sair
     if [ ${#missing[@]} -gt 0 ]; then
         local pkg_list="${missing[*]}"
 
-        # Detecta gerenciador de pacotes disponível
+        # Detecta gerenciador de pacotes disponivel
         local pkg_update="" pkg_install=""
         if command -v apt-get &>/dev/null; then
             pkg_update="sudo apt-get update -y"
@@ -246,9 +246,9 @@ check_dependencies() {
         if command -v dialog &>/dev/null; then
             # Mostra quais pacotes faltam e pergunta se quer instalar
             dialog --backtitle "$BACKTITLE" \
-                   --title "⚠  Dependências Ausentes" \
+                   --title "⚠  Dependencias Ausentes" \
                    --cr-wrap \
-                   --yesno "$(printf '%b' "$status_lines")\n\nPacotes necessários: $pkg_list\n\nDeseja instalar agora?" \
+                   --yesno "$(printf '%b' "$status_lines")\n\nPacotes necessarios: $pkg_list\n\nDeseja instalar agora?" \
                    22 62 > "$CURR_TTY"
             local resp=$?
 
@@ -261,9 +261,9 @@ check_dependencies() {
                     exit 1
                 fi
 
-                # Usuário escolheu instalar
+                # Usuario escolheu instalar
                 dialog --backtitle "$BACKTITLE" \
-                       --title "Instalando Dependências" \
+                       --title "Instalando Dependencias" \
                        --infobox "Atualizando lista de pacotes...\nAguarde..." \
                        7 $DLG_W > "$CURR_TTY"
 
@@ -272,12 +272,12 @@ check_dependencies() {
                 {
                     # Conserta dpkg interrompido (caso exista estado pendente)
                     sudo dpkg --configure -a 2>&1 || true
-                    $pkg_update 2>&1 || true   # falha de rede não é fatal
+                    $pkg_update 2>&1 || true   # falha de rede nao e fatal
                     $pkg_install $pkg_list 2>&1
                 } | tee "$log_tmp" | \
                 dialog --backtitle "$BACKTITLE" \
-                       --title "Instalando Dependências" \
-                       --programbox "Saída do gerenciador de pacotes:" \
+                       --title "Instalando Dependencias" \
+                       --programbox "Saida do gerenciador de pacotes:" \
                        20 $DLG_W > "$CURR_TTY"
 
                 # Verifica se tudo foi instalado
@@ -288,30 +288,30 @@ check_dependencies() {
 
                 if [ ${#still_missing[@]} -eq 0 ]; then
                     dialog --backtitle "$BACKTITLE" \
-                           --title "Instalação Concluída" \
-                           --msgbox "✓ Dependências instaladas com sucesso!\n\nO script continuará normalmente." \
+                           --title "Instalacao Concluida" \
+                           --msgbox "OK Dependencias instaladas com sucesso!\n\nO script continuara normalmente." \
                            $DLG_H $DLG_W > "$CURR_TTY"
                 else
                     dialog --backtitle "$BACKTITLE" \
-                           --title "Erro na Instalação" \
-                           --msgbox "✗ Ainda faltam: ${still_missing[*]}\n\nVeja o log em:\n$log_tmp\n\nO script será encerrado." \
+                           --title "Erro na Instalacao" \
+                           --msgbox "ERRO Ainda faltam: ${still_missing[*]}\n\nVeja o log em:\n$log_tmp\n\nO script sera encerrado." \
                            $DLG_H $DLG_W > "$CURR_TTY"
                     clear
                     exit 1
                 fi
             else
-                # Usuário escolheu não instalar / pressionou Não
+                # Usuario escolheu nao instalar / pressionou Nao
                 local install_cmd="${pkg_install:-"apt-get install -y"}"
                 dialog --backtitle "$BACKTITLE" \
                        --title "Encerrando" \
-                       --msgbox "Instalação cancelada.\n\nInstale manualmente quando quiser:\n  $pkg_update\n  $install_cmd $pkg_list" \
+                       --msgbox "Instalacao cancelada.\n\nInstale manualmente quando quiser:\n  $pkg_update\n  $install_cmd $pkg_list" \
                        $DLG_H $DLG_W > "$CURR_TTY"
                 clear
                 exit 0
             fi
         else
             echo ""
-            echo "=== $SCRIPT_NAME: Dependências Ausentes ==="
+            echo "=== $SCRIPT_NAME: Dependencias Ausentes ==="
             printf '%b' "$status_lines"
             echo ""
             local install_cmd="${pkg_install:-"apt-get install -y"}"
@@ -323,32 +323,32 @@ check_dependencies() {
 
 
 
-    log "Dependências OK. rclone disponível: $RCLONE_AVAILABLE"
+    log "Dependencias OK. rclone disponivel: $RCLONE_AVAILABLE"
 }
 
-# Flag global: 1 = internet disponível, 0 = apenas LAN ou offline
+# Flag global: 1 = internet disponivel, 0 = apenas LAN ou offline
 INTERNET_OK=0
 
 check_wifi() {
     log "Verificando conectividade de rede..."
 
-    # --- Passo 1: verifica se há interface de rede ativada (LAN/WiFi) -----
+    # --- Passo 1: verifica se ha interface de rede ativada (LAN/WiFi) -----
     local has_route=0
     if ip route 2>/dev/null | grep -q "^default"; then
         has_route=1
-        log "Rota padrão encontrada (WiFi/LAN ativa)."
+        log "Rota padrao encontrada (WiFi/LAN ativa)."
     fi
 
     if [ "$has_route" = "0" ]; then
-        # Sem rota — pergunta ao usuário se quer continuar
-        log "AVISO: sem rota padrão. Rede pode não estar ativa."
+        # Sem rota — pergunta ao usuario se quer continuar
+        log "AVISO: sem rota padrao. Rede pode nao estar ativa."
         dialog --backtitle "$BACKTITLE" \
-               --title "Sem Conexão de Rede" \
+               --title "Sem Conexao de Rede" \
                --yesno "⚠  Nenhuma interface de rede detectada.\n\nVerifique o Wi-Fi e tente novamente.\n\nDeseja tentar continuar mesmo assim?" \
                $DLG_H $DLG_W > "$CURR_TTY" || exit 1
     fi
 
-    # --- Passo 2: testa acesso real à internet (HTTP) ---------------------
+    # --- Passo 2: testa acesso real a internet (HTTP) ---------------------
     # Usa wget (como ThemeMaster): diferente bundle SSL/CA do curl no ArkOS
     local test_urls="http://connectivity-check.ubuntu.com/ http://captive.apple.com/"
     local u
@@ -360,7 +360,7 @@ check_wifi() {
         fi
     done
 
-    # Fallback: tenta com curl caso wget não exista
+    # Fallback: tenta com curl caso wget nao exista
     for u in $test_urls; do
         if curl --silent --connect-timeout 5 --max-time 8 -o /dev/null "$u" 2>/dev/null; then
             INTERNET_OK=1
@@ -369,20 +369,20 @@ check_wifi() {
         fi
     done
 
-    # Se chegou aqui: LAN OK mas internet não acessível
+    # Se chegou aqui: LAN OK mas internet nao acessivel
     INTERNET_OK=0
-    log "Rede local ativa mas sem acesso à internet."
+    log "Rede local ativa mas sem acesso a internet."
 }
 
-# --- Configuração ---------------------------------------------------------
+# --- Configuracao ---------------------------------------------------------
 
 load_config() {
     if [ -f "$CONFIG_FILE" ]; then
         # shellcheck source=/dev/null
         source "$CONFIG_FILE"
-        # Se não tem versionamento, é config antiga — roda migrator
+        # Se nao tem versionamento, e config antiga — roda migrator
         if [ -z "${ROMMSYNC_CONF_VERSION:-}" ]; then
-            log "Config sem versão detectada, executando migração..."
+            log "Config sem versao detectada, executando migracao..."
             migrate_config
         fi
         return 0
@@ -390,16 +390,16 @@ load_config() {
     return 1
 }
 
-# Migrator de configuração entre versões
+# Migrator de configuracao entre versoes
 migrate_config() {
-    log "Rodando migrator de configuração..."
-    # Adiciona campos padrão para novas versões
+    log "Rodando migrator de configuracao..."
+    # Adiciona campos padrao para novas versoes
     local backup="${CONFIG_FILE}.bak.migration"
     cp -f "$CONFIG_FILE" "$backup" 2>/dev/null
-    # Reseta com versão
+    # Reseta com versao
     save_config "${ROMM_URL:-}" "${ROMM_USER:-}" "${ROMM_PASS:-}"
     rm -f "$backup"
-    log "Migração concluída."
+    log "Migracao concluida."
 }
 
 save_config() {
@@ -420,40 +420,39 @@ ROMM_USER="${user}"
 ROMM_PASS="${pass}"
 ROMM_AUTH_B64="${b64}"
 AUTOUPDATE="on"
-DIALOGRC_THEME="${DIALOGRC_THEME:-arkos}"
 CACHE_TTL="${CACHE_TTL:-3600}"
 EOF
     chmod 600 "$CONFIG_FILE"
-    log "Configuração salva em $CONFIG_FILE (v${CONF_VERSION})"
+    log "Configuracao salva em $CONFIG_FILE (v${CONF_VERSION})"
 }
 
 setup_config() {
     local url user pass
 
     dialog --backtitle "$BACKTITLE" \
-           --title "Configuração Inicial" \
-           --msgbox "Bem-vindo ao $SCRIPT_NAME v$VERSION!\n\nEscolha como fornecer as configurações\ndo servidor RomM." \
+           --title "Configuracao Inicial" \
+           --msgbox "Bem-vindo ao $SCRIPT_NAME v$VERSION!\n\nEscolha como fornecer as configuracoes\ndo servidor RomM." \
            $DLG_H $DLG_W > "$CURR_TTY"
 
-    # --- Menu de método de configuração ------------------------------------
+    # --- Menu de metodo de configuracao ------------------------------------
     local method
     method=$(dialog --output-fd 1 \
                     --backtitle "$BACKTITLE" \
                     --title "Como configurar?" \
-                    --menu "Escolha uma opção:" $DLG_H $DLG_W 4 \
-                    "sd"     "Importar arquivo do cartão SD (recomendado)" \
+                    --menu "Escolha uma opcao:" $DLG_H $DLG_W 4 \
+                    "sd"     "Importar arquivo do cartao SD (recomendado)" \
                     "manual" "Digitar manualmente (requer teclado USB)" \
-                    "ssh"    "Ver instruções para configurar via SSH" \
+                    "ssh"    "Ver instrucoes para configurar via SSH" \
                     2>"$CURR_TTY") || return 1
 
     case "$method" in
 
       # ----------------------------------------------------------------
-      # Opção 1: Importar do cartão SD
-      # O usuário cria /roms/rommsync_config.conf no PC antes de rodar
+      # Opcao 1: Importar do cartao SD
+      # O usuario cria /roms/rommsync_config.conf no PC antes de rodar
       # ----------------------------------------------------------------
       sd)
-        # Pasta do script em execução (ex: /opt/system/Tools)
+        # Pasta do script em execucao (ex: /opt/system/Tools)
         local script_dir
         script_dir=$(dirname "$(realpath "$0" 2>/dev/null || echo "$0")")
         local import_path="${script_dir}/${CONFIG_IMPORT_NAME}"
@@ -466,13 +465,13 @@ setup_config() {
 
         if [ ! -f "$import_path" ]; then
             dialog --backtitle "$BACKTITLE" \
-                   --title "Arquivo não encontrado" \
-                   --msgbox "Arquivo não encontrado em:\n  $import_path\n\nCrie o arquivo e tente novamente." \
+                   --title "Arquivo nao encontrado" \
+                   --msgbox "Arquivo nao encontrado em:\n  $import_path\n\nCrie o arquivo e tente novamente." \
                    $DLG_H $DLG_W > "$CURR_TTY"
             return 1
         fi
 
-        # Lê as variáveis do arquivo — || true: grep retorna 1 se chave ausente
+        # Le as variaveis do arquivo — || true: grep retorna 1 se chave ausente
         local imp_url="" imp_user="" imp_pass=""
         imp_url=$(grep  -m1 'ROMM_URL='  "$import_path" | cut -d= -f2- | tr -d '"' | xargs) || true
         imp_user=$(grep -m1 'ROMM_USER=' "$import_path" | cut -d= -f2- | tr -d '"' | xargs) || true
@@ -480,8 +479,8 @@ setup_config() {
 
         if [ -z "$imp_url" ] || [ -z "$imp_user" ]; then
             dialog --backtitle "$BACKTITLE" \
-                   --title "Arquivo Inválido" \
-                   --msgbox "O arquivo não contém ROMM_URL e ROMM_USER.\nVerifique o formato e tente novamente." \
+                   --title "Arquivo Invalido" \
+                   --msgbox "O arquivo nao contem ROMM_URL e ROMM_USER.\nVerifique o formato e tente novamente." \
                    $DLG_H $DLG_W > "$CURR_TTY"
             return 1
         fi
@@ -493,7 +492,7 @@ setup_config() {
         ;;
 
       # ----------------------------------------------------------------
-      # Opção 2: Digitar manualmente (requer teclado USB conectado)
+      # Opcao 2: Digitar manualmente (requer teclado USB conectado)
       # ----------------------------------------------------------------
       manual)
         url=$(dialog --output-fd 1 --backtitle "$BACKTITLE" \
@@ -503,8 +502,8 @@ setup_config() {
                      2>"$CURR_TTY") || return 1
 
         user=$(dialog --output-fd 1 --backtitle "$BACKTITLE" \
-                      --title "Usuário" \
-                      --inputbox "Nome de usuário do RomM:" \
+                      --title "Usuario" \
+                      --inputbox "Nome de usuario do RomM:" \
                       $DLG_H $DLG_W "" \
                       2>"$CURR_TTY") || return 1
 
@@ -516,22 +515,22 @@ setup_config() {
         ;;
 
       # ----------------------------------------------------------------
-      # Opção 3: Instruções SSH
+      # Opcao 3: Instrucoes SSH
       # ----------------------------------------------------------------
       ssh)
         local hostname_str
         hostname_str=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "<IP-DO-CONSOLE>")
         dialog --backtitle "$BACKTITLE" \
                --title "Configurar via SSH" \
-               --msgbox "No seu PC, abra um terminal e execute:\n\n  ssh ark@${hostname_str}\n  (senha padrão: ark)\n\nDepois crie o arquivo de config:\n\n  nano ~/.rommsync.conf\n\nFormato:\n  ROMM_URL=\"http://IP:PORTA\"\n  ROMM_USER=\"usuario\"\n  ROMM_PASS=\"senha\"\n  ROMM_AUTH_B64=\"base64(user:pass)\"\n\nSalve (Ctrl+X) e relance o app." \
+               --msgbox "No seu PC, abra um terminal e execute:\n\n  ssh ark@${hostname_str}\n  (senha padrao: ark)\n\nDepois crie o arquivo de config:\n\n  nano ~/.rommsync.conf\n\nFormato:\n  ROMM_URL=\"http://IP:PORTA\"\n  ROMM_USER=\"usuario\"\n  ROMM_PASS=\"senha\"\n  ROMM_AUTH_B64=\"base64(user:pass)\"\n\nSalve (Ctrl+X) e relance o app." \
                22 $DLG_W > "$CURR_TTY"
         return 1  # volta ao menu para tentar novamente
         ;;
     esac
 
-    # --- Testa a conexão com os dados obtidos ----------------------------
+    # --- Testa a conexao com os dados obtidos ----------------------------
     dialog --backtitle "$BACKTITLE" \
-           --infobox "Testando conexão com o servidor..." \
+           --infobox "Testando conexao com o servidor..." \
            5 $DLG_W > "$CURR_TTY"
 
     local test_b64
@@ -549,23 +548,23 @@ setup_config() {
     http_code="${http_code:-000}"
 
     if [ "$http_code" != "200" ]; then
-        # Diagnóstico: tenta identificar causa do 000
+        # Diagnostico: tenta identificar causa do 000
         local diag_detail=""
         if [ "$http_code" = "000" ]; then
             local host
             host=$(printf '%s' "$url" | sed 's|https\?://||' | cut -d'/' -f1 | cut -d':' -f1)
             if getent hosts "$host" > /dev/null 2>&1 || nslookup "$host" > /dev/null 2>&1; then
-                diag_detail="DNS: OK — servidor recusou ou SSL inválido"
+                diag_detail="DNS: OK — servidor recusou ou SSL invalido"
             else
-                diag_detail="DNS: não foi possível resolver '$host'"
+                diag_detail="DNS: nao foi possivel resolver '$host'"
             fi
             local curl_err
             curl_err=$(cat "$curl_err_file" 2>/dev/null | head -1 | cut -c1-50)
             [ -n "$curl_err" ] && diag_detail="${diag_detail}\nDetalhe: $curl_err"
         fi
         dialog --backtitle "$BACKTITLE" \
-               --title "Erro de Conexão" \
-               --yesno "Não foi possível conectar.\nHTTP: $http_code${diag_detail:+\n$diag_detail}\n\nDeseja salvar a configuração mesmo assim?" \
+               --title "Erro de Conexao" \
+               --yesno "Nao foi possivel conectar.\nHTTP: $http_code${diag_detail:+\n$diag_detail}\n\nDeseja salvar a configuracao mesmo assim?" \
                12 $DLG_W > "$CURR_TTY" || { rm -f "$curl_err_file"; return 1; }
     fi
     rm -f "$curl_err_file"
@@ -574,17 +573,17 @@ setup_config() {
 
     dialog --backtitle "$BACKTITLE" \
            --title "Sucesso" \
-           --msgbox "✓ Configuração salva!\n\nServidor: $url\nUsuário:  $user" \
+           --msgbox "OK Configuracao salva!\n\nServidor: $url\nUsuario:  $user" \
            $DLG_H $DLG_W > "$CURR_TTY"
 }
 
-# --- Funções de API -------------------------------------------------------
+# --- Funcoes de API -------------------------------------------------------
 
 api_get() {
     local endpoint="$1"
     local force_refresh="${FORCE_REFRESH:-0}"
 
-    # Não cacheia operações de escrita ou endpoints específicos
+    # Nao cacheia operacoes de escrita ou endpoints especificos
     local no_cache_endpoints=("/api/saves/upload" "/api/roms")
     local nc
     for nc in "${no_cache_endpoints[@]}"; do
@@ -620,13 +619,13 @@ api_get() {
     response=$(cat "$tmp_body" 2>/dev/null) || true
     rm -f "$tmp_body"
 
-    log "API GET: $endpoint → HTTP $http_code (${#response} bytes)"
+    log "API GET: $endpoint -> HTTP $http_code (${#response} bytes)"
 
     if [ -z "$response" ]; then
         log "API GET vazio: $endpoint (HTTP $http_code)"
     fi
 
-    # Armazena no cache se foi resposta válida
+    # Armazena no cache se foi resposta valida
     if [ -n "$response" ] && echo "$response" | jq empty 2>/dev/null; then
         cache_set "$endpoint" "$response"
     fi
@@ -652,33 +651,33 @@ api_post_file() {
 
 # =============================================================================
 # SKILL: JSON-to-Menu Mapping
-# Converte o array JSON da API do RomM em um array flat compatível com
-# `dialog --menu`. Esse é o ponto onde a maioria dos scripts falha porque:
-#   1. jq emite várias linhas — arrays bash precisam de leitura segura
-#   2. Nomes com espaços/aspas quebram o split de palavras do shell
-#   3. IDs numéricos que viram índices causam dessincronização
+# Converte o array JSON da API do RomM em um array flat compativel com
+# `dialog --menu`. Esse e o ponto onde a maioria dos scripts falha porque:
+#   1. jq emite varias linhas — arrays bash precisam de leitura segura
+#   2. Nomes com espacos/aspas quebram o split de palavras do shell
+#   3. IDs numericos que viram indices causam dessincronizacao
 #
 # Uso:
 #   json_to_menu_entries <json_array> <id_field> <label_template> <result_array_name>
 #
 #   json_array       : JSON bruto (string)
 #   id_field         : campo jq para o valor de "tag" do dialog (ex: ".id")
-#   label_template   : expressão jq que gera o rótulo (ex: '.name + " (" + .slug + ")"')
-#   result_array_name: nome do array bash de saída (passado por referência via eval)
+#   label_template   : expressao jq que gera o rotulo (ex: '.name + " (" + .slug + ")"')
+#   result_array_name: nome do array bash de saida (passado por referencia via eval)
 #
-# Retorno: popula o array nomeado em result_array_name com pares [tag, item, tag, item…]
+# Retorno: popula o array nomeado em result_array_name com pares [tag, item, tag, item...]
 # =============================================================================
 json_to_menu_entries() {
     local json="$1"
     local id_field="$2"
     local label_tpl="$3"
-    local -n _out_array="$4"   # nameref: modificação direta do array do chamador
+    local -n _out_array="$4"   # nameref: modificacao direta do array do chamador
 
     _out_array=()              # garante array limpo
 
     # Processa cada objeto do array JSON como uma linha compacta
     # O truque principal: usar \u0001 (ASCII SOH) como delimitador interno
-    # para separar id do label sem depender de espaço/newline
+    # para separar id do label sem depender de espaco/newline
     while IFS= read -r entry; do
         # Cada 'entry' vem no formato "ID\u0001LABEL"
         local tag label
@@ -693,7 +692,7 @@ json_to_menu_entries() {
 
         _out_array+=("$tag" "$label")
     done < <(
-        # jq monta cada linha como "id\u0001label" — saída segura, sem newlines em nomes
+        # jq monta cada linha como "id\u0001label" — saida segura, sem newlines em nomes
         echo "$json" | jq -r \
             --argjson id_field  "null" \
             ".[] | (${id_field} | tostring) + \"\u0001\" + (${label_tpl})" \
@@ -705,31 +704,31 @@ json_to_menu_entries() {
 
 # =============================================================================
 # SKILL: Rclone Integration
-# Motor de transferência alternativo para uploads grandes.
-# O rclone já vem pré-instalado no ArkOS e suporta retomada (--retries).
-# Usa o script RomMSync como interface, delegando a transferência ao rclone
-# via remote HTTP com autenticação Basic.
+# Motor de transferencia alternativo para uploads grandes.
+# O rclone ja vem pre-instalado no ArkOS e suporta retomada (--retries).
+# Usa o script RomMSync como interface, delegando a transferencia ao rclone
+# via remote HTTP com autenticacao Basic.
 #
-# Estratégia de fallback:
-#   1. Se rclone está disponível E arquivo > RCLONE_THRESHOLD → usa rclone
-#   2. Caso contrário → usa curl (comportamento padrão)
+# Estrategia de fallback:
+#   1. Se rclone esta disponivel E arquivo > RCLONE_THRESHOLD -> usa rclone
+#   2. Caso contrario -> usa curl (comportamento padrao)
 # =============================================================================
 
-# Limite em bytes acima do qual o rclone é preferido (padrão: 50 MB)
+# Limite em bytes acima do qual o rclone e preferido (padrao: 50 MB)
 readonly RCLONE_THRESHOLD=$((50 * 1024 * 1024))
 
 # Upload de arquivo via rclone (remote HTTP configurado on-the-fly)
 rclone_upload() {
     local file="$1"       # arquivo local a enviar
     local dest_url="$2"   # URL HTTP de destino completa
-    local label="$3"      # rótulo para o dialog --gauge
+    local label="$3"      # rotulo para o dialog --gauge
 
     local file_size
     file_size=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null || echo 0)
 
-    log "rclone_upload: $file ($file_size bytes) → $dest_url"
+    log "rclone_upload: $file ($file_size bytes) -> $dest_url"
 
-    # Cria um remote HTTP temporário na config em memória do rclone
+    # Cria um remote HTTP temporario na config em memoria do rclone
     local rclone_remote="rommsync_tmp"
     local rclone_conf="${TMP_DIR}/rclone_tmp.conf"
 
@@ -739,17 +738,17 @@ rclone_upload() {
     local endpoint_path
     endpoint_path="${dest_url#"$base_url"}"
 
-    # Grava config temporária do rclone (nunca persiste em disco além do /tmp)
+    # Grava config temporaria do rclone (nunca persiste em disco alem do /tmp)
     cat > "$rclone_conf" <<EOF
 [${rclone_remote}]
 type = http
 url = ${base_url}
 EOF
 
-    # Executa upload com rclone copyto, autenticação via header
-    # --retries 3: retentativas automáticas em falhas de rede
+    # Executa upload com rclone copyto, autenticacao via header
+    # --retries 3: retentativas automaticas em falhas de rede
     # --buffer-size 4M: buffer adequado para ARM com pouca RAM
-    # --progress: saída de progresso parseável
+    # --progress: saida de progresso parseavel
     local exit_code=0
     rclone copyto \
         --config "$rclone_conf" \
@@ -763,7 +762,7 @@ EOF
         "$file" \
         "${rclone_remote}:${endpoint_path}" \
         2>&1 | \
-    # Parseia saída do rclone para extrair % e alimentar --gauge
+    # Parseia saida do rclone para extrair % e alimentar --gauge
     grep --line-buffered -oP '\d+(?=%)' | \
     while IFS= read -r pct; do
         echo "$pct"
@@ -780,7 +779,7 @@ EOF
         return 1
     fi
 
-    log "rclone_upload: concluído com sucesso."
+    log "rclone_upload: concluido com sucesso."
     return 0
 }
 
@@ -796,10 +795,10 @@ smart_upload() {
     local full_url="${ROMM_URL}${endpoint}"
 
     if [ "${RCLONE_AVAILABLE:-0}" = "1" ] && [ "$file_size" -gt "$RCLONE_THRESHOLD" ]; then
-        log "smart_upload: arquivo grande ($file_size bytes) → usando rclone"
-        rclone_upload "$file" "$full_url" "Enviando $(basename "$file")…"
+        log "smart_upload: arquivo grande ($file_size bytes) -> usando rclone"
+        rclone_upload "$file" "$full_url" "Enviando $(basename "$file")..."
     else
-        log "smart_upload: arquivo pequeno ou rclone indisponível → usando curl"
+        log "smart_upload: arquivo pequeno ou rclone indisponivel -> usando curl"
         # shellcheck disable=SC2086
         api_post_file "$endpoint" "$file" $extra_curl_args
     fi
@@ -814,7 +813,7 @@ smart_upload() {
 #   - Na raiz da pasta do console:  /roms/snes/JogoA.srm
 #   - Em subpastas dentro do console: /roms/snes/JogoA/JogoA.state
 #
-# Saída (stdout): linhas no formato "root|console|count"
+# Saida (stdout): linhas no formato "root|console|count"
 #   Ex: /roms|snes|3
 #       /roms2|psx|1
 # ---------------------------------------------------------------------------
@@ -822,10 +821,10 @@ collect_saves_index() {
     local root console count
     for root in "${ROMS_ROOTS[@]}"; do
         [ -d "$root" ] || continue
-        # Cada subpasta direta de $root é um console
+        # Cada subpasta direta de $root e um console
         while IFS= read -r -d '' console_dir; do
             console=$(basename "$console_dir")
-            # Busca saves recursivamente até 3 níveis abaixo do console
+            # Busca saves recursivamente ate 3 niveis abaixo do console
             # (console/save.srm  ou  console/subpasta/save.srm)
             count=$(find "$console_dir" \
                         -mindepth 1 -maxdepth 3 -type f \
@@ -855,7 +854,7 @@ backup_saves() {
            --infobox "Buscando saves em ${ROMS_ROOTS[*]}..." \
            5 $DLG_W > "$CURR_TTY"
 
-    # ── Constrói índice: arrays paralelos root[] / console[] / count[] ────────
+    # -- Constroi indice: arrays paralelos root[] / console[] / count[] --------
     local -a idx_root idx_console idx_count
     local idx=0
 
@@ -869,13 +868,13 @@ backup_saves() {
     if [ "$idx" -eq 0 ]; then
         dialog --backtitle "$BACKTITLE" \
                --title "Backup de Saves" \
-               --msgbox "Nenhum save encontrado em:\n${ROMS_ROOTS[*]}\n\nExtensões buscadas: .srm .state .sav" \
+               --msgbox "Nenhum save encontrado em:\n${ROMS_ROOTS[*]}\n\nExtensoes buscadas: .srm .state .sav" \
                $DLG_H $DLG_W > "$CURR_TTY"
         return
     fi
 
-    # ── Monta menu ─────────────────────────────────────────────────────────────
-    # Chave: índice numérico; label: "console (N saves) [/root]"
+    # -- Monta menu -------------------------------------------------------------
+    # Chave: indice numerico; label: "console (N saves) [/root]"
     local -a menu_entries=("all" "★ Todos os sistemas")
     local i
     for i in $(seq 0 $((idx - 1))); do
@@ -892,7 +891,7 @@ backup_saves() {
                     "${menu_entries[@]}" \
                     2>"$CURR_TTY") || return
 
-    # ── Determina quais entradas processar ─────────────────────────────────────
+    # -- Determina quais entradas processar -------------------------------------
     local -a sel_indices
     if [ "$choice" = "all" ]; then
         for i in $(seq 0 $((idx - 1))); do sel_indices+=("$i"); done
@@ -900,7 +899,7 @@ backup_saves() {
         sel_indices=("$choice")
     fi
 
-    # ── Processa cada console selecionado ──────────────────────────────────────
+    # -- Processa cada console selecionado --------------------------------------
     local total=${#sel_indices[@]}
     local current=0
     local ok_count=0
@@ -923,7 +922,7 @@ backup_saves() {
 
         # Zip com estrutura de pastas preservada:
         # cd no root faz com que o zip armazene 'console/save.srm'
-        # e 'console/subpasta/save.srm' — sem colisões de nomes.
+        # e 'console/subpasta/save.srm' — sem colisoes de nomes.
         (
             cd "$root" || exit 1
             find "$console" \
@@ -964,20 +963,20 @@ backup_saves() {
 
     echo "100" | dialog --backtitle "$BACKTITLE" \
                          --title "Backup" \
-                         --gauge "Concluído!" \
+                         --gauge "Concluido!" \
                          7 $DLG_W 100 > "$CURR_TTY"
     sleep 1
 
-    local summary="✓ Backup concluído!\n\n"
+    local summary="OK Backup concluido!\n\n"
     summary+="Enviados: $ok_count console(s)\n"
     [ "$fail_count" -gt 0 ] && summary+="Falhas:   $fail_count (veja o log)"
 
     dialog --backtitle "$BACKTITLE" \
-           --title "Backup Concluído" \
+           --title "Backup Concluido" \
            --msgbox "$summary" \
            $DLG_H $DLG_W > "$CURR_TTY"
 
-    # Invalida cache de saves no servidor após upload
+    # Invalida cache de saves no servidor apos upload
     cache_invalidate_all
 }
 
@@ -995,7 +994,7 @@ romm_slug_to_arkos() {
         return 0
     fi
 
-    # Tenta slug normalizado (substitui espaços e hífen por nada)
+    # Tenta slug normalizado (substitui espacos e hifen por nada)
     local normalized
     normalized=$(echo "$slug_lower" | tr -d ' -_')
     for key in "${!PLATFORM_MAP[@]}"; do
@@ -1007,7 +1006,7 @@ romm_slug_to_arkos() {
         fi
     done
 
-    # Fallback: usa o slug original em minúsculas
+    # Fallback: usa o slug original em minusculas
     echo "$slug_lower"
 }
 
@@ -1027,13 +1026,13 @@ list_platforms() {
         return 1
     fi
 
-    # ─── SKILL: JSON-to-Menu Mapping ────────────────────────────────────────
+    # --- SKILL: JSON-to-Menu Mapping ----------------------------------------
     # Usa json_to_menu_entries para converter o JSON de plataformas em pares
-    # [id, "Nome → /roms/pasta/"] de forma robusta (sem split de palavras,
-    # sem quebra por espaços em nomes de plataformas).
-    # ─────────────────────────────────────────────────────────────────────────
+    # [id, "Nome -> /roms/pasta/"] de forma robusta (sem split de palavras,
+    # sem quebra por espacos em nomes de plataformas).
+    # -------------------------------------------------------------------------
 
-    # Verifica se há dados válidos
+    # Verifica se ha dados validos
     local platform_count
     platform_count=$(echo "$response" | jq '. | length' 2>/dev/null || echo 0)
     if [ "$platform_count" = "0" ]; then
@@ -1045,10 +1044,10 @@ list_platforms() {
     fi
 
     # Monta menu via json_to_menu_entries
-    # Label: "Nome da Plataforma  →  /roms/pasta/"
+    # Label: "Nome da Plataforma  ->  /roms/pasta/"
     # O label_tpl usa jq para calcular a pasta ArkOS inline:
-    # Como o mapeamento está no bash, fazemos a resolução em dois passos:
-    #   passo 1: extraímos id+slug+nome em uma linha por objeto
+    # Como o mapeamento esta no bash, fazemos a resolucao em dois passos:
+    #   passo 1: extraimos id+slug+nome em uma linha por objeto
     #   passo 2: resolvemos a pasta ArkOS em bash
     local menu_entries=()
     local ids_arr=()
@@ -1061,7 +1060,7 @@ list_platforms() {
         arkos_folder=$(romm_slug_to_arkos "$pslug")
         ids_arr+=("$pid")
         slugs_arr+=("$pslug")
-        menu_entries+=("$pid" "${pname:0:30}  →  /roms/${arkos_folder}/")
+        menu_entries+=("$pid" "${pname:0:30}  ->  /roms/${arkos_folder}/")
     done < <(
         echo "$response" | jq -r \
             '.[] | (.id | tostring) + "|" + .slug + "|" + .name' \
@@ -1132,11 +1131,11 @@ list_games() {
         return
     fi
 
-    # ─── SKILL: JSON-to-Menu Mapping (lista de ROMs) ─────────────────────────
-    # Extrai id | file_name | nome | tamanho em uma única passagem pelo jq,
-    # evitando múltiplos jq por linha (lentíssimo no ARM com listas grandes).
-    # Delimitador interno: ASCII SOH (\x01) — não aparece em nomes de arquivo.
-    # ─────────────────────────────────────────────────────────────────────────
+    # --- SKILL: JSON-to-Menu Mapping (lista de ROMs) -------------------------
+    # Extrai id | file_name | nome | tamanho em uma unica passagem pelo jq,
+    # evitando multiplos jq por linha (lentissimo no ARM com listas grandes).
+    # Delimitador interno: ASCII SOH (\x01) — nao aparece em nomes de arquivo.
+    # -------------------------------------------------------------------------
     local menu_entries=()
     local rom_ids=()
     local rom_names=()
@@ -1145,7 +1144,7 @@ list_games() {
     while IFS=$'\x01' read -r rid rfile rname rsize; do
         [ -z "$rid" ] || [ "$rid" = "null" ] && continue
 
-        # Formata tamanho de forma eficiente (sem bc — usa aritmética bash)
+        # Formata tamanho de forma eficiente (sem bc — usa aritmetica bash)
         local size_str
         if   [ "$rsize" -gt 1073741824 ] 2>/dev/null; then
             size_str="$(( rsize / 1073741824 ))GB"
@@ -1160,10 +1159,10 @@ list_games() {
         rom_ids+=("$rid")
         rom_names+=("$rname")
         rom_files+=("$rfile")
-        # Label: nome truncado + tamanho — sem quebra por espaço
+        # Label: nome truncado + tamanho — sem quebra por espaco
         menu_entries+=("$rid" "${rname:0:36}  [${size_str}]")
     done < <(
-        # Uma única chamada ao jq por toda a lista — eficiente no ARM
+        # Uma unica chamada ao jq por toda a lista — eficiente no ARM
         echo "$response" | jq -r \
             '.items[] | (.id | tostring)
                 + "\u0001" + .file_name
@@ -1201,8 +1200,8 @@ download_rom() {
     local platform_slug="$4"
 
     # Determina pasta de destino
-    # Usa ROMS_ROOTS[0] (/roms) como destino padrão de download.
-    # Se /roms não existir mas /roms2 existir, usa /roms2.
+    # Usa ROMS_ROOTS[0] (/roms) como destino padrao de download.
+    # Se /roms nao existir mas /roms2 existir, usa /roms2.
     local arkos_folder
     arkos_folder=$(romm_slug_to_arkos "$platform_slug")
     local dest_root="${ROMS_ROOTS[0]}"
@@ -1212,18 +1211,18 @@ download_rom() {
     local dest_dir="${dest_root}/${arkos_folder}"
     local dest_file="${dest_dir}/${file_name}"
 
-    # Cria pasta se não existir
+    # Cria pasta se nao existir
     mkdir -p "$dest_dir"
 
-    # Verifica se já existe
+    # Verifica se ja existe
     if [ -f "$dest_file" ]; then
         dialog --backtitle "$BACKTITLE" \
                --title "Arquivo Existente" \
-               --yesno "O arquivo já existe:\n${dest_file}\n\nDeseja substituir?" \
+               --yesno "O arquivo ja existe:\n${dest_file}\n\nDeseja substituir?" \
                $DLG_H $DLG_W > "$CURR_TTY" || return
     fi
 
-    log "Baixando ROM: $rom_name → $dest_file"
+    log "Baixando ROM: $rom_name -> $dest_file"
 
     local download_url="${ROMM_URL}/api/roms/${rom_id}/content/${file_name}"
     local tmp_file="${TMP_DIR}/download_${rom_id}_${file_name}"
@@ -1251,14 +1250,14 @@ download_rom() {
 
     if [ "$exit_code" = "0" ] && [ -f "$tmp_file" ] && [ -s "$tmp_file" ]; then
         mv "$tmp_file" "$dest_file"
-        log "Download concluído: $dest_file"
+        log "Download concluido: $dest_file"
 
         # Invalida cache de ROMs da plataforma — dados podem ter mudado
         cache_invalidate_all
 
         dialog --backtitle "$BACKTITLE" \
-               --title "Download Concluído" \
-               --msgbox "✓ Jogo baixado com sucesso!\n\n$rom_name\n\nSalvo em:\n$dest_file" \
+               --title "Download Concluido" \
+               --msgbox "OK Jogo baixado com sucesso!\n\n$rom_name\n\nSalvo em:\n$dest_file" \
                $DLG_H $DLG_W > "$CURR_TTY"
     else
         rm -f "$tmp_file"
@@ -1266,17 +1265,17 @@ download_rom() {
 
         dialog --backtitle "$BACKTITLE" \
                --title "Erro no Download" \
-               --msgbox "✗ Falha ao baixar:\n$rom_name\n\nVerifique o log em:\n$LOG_FILE" \
+               --msgbox "ERRO Falha ao baixar:\n$rom_name\n\nVerifique o log em:\n$LOG_FILE" \
                $DLG_H $DLG_W > "$CURR_TTY"
     fi
 }
 
-# --- Configurações Via Menu -----------------------------------------------
+# --- Configuracoes Via Menu -----------------------------------------------
 
 reconfigure() {
     dialog --backtitle "$BACKTITLE" \
            --title "Reconfigurar" \
-           --yesno "Deseja reconfigurar a conexão com o servidor RomM?\n\nAs configurações atuais serão substituídas." \
+           --yesno "Deseja reconfigurar a conexao com o servidor RomM?\n\nAs configuracoes atuais serao substituidas." \
            $DLG_H $DLG_W > "$CURR_TTY" || return
 
     setup_config
@@ -1288,7 +1287,7 @@ show_status() {
         local http_code latency_ms diag_lines=""
 
         dialog --backtitle "$BACKTITLE" \
-               --infobox "Verificando conexão com o servidor..." \
+               --infobox "Verificando conexao com o servidor..." \
                3 50 > "$CURR_TTY"
 
         # shellcheck disable=SC2086
@@ -1298,22 +1297,28 @@ show_status() {
                          "${ROMM_URL}/api/heartbeat" 2>/dev/null) || true
         http_code="${http_code:-000}"
 
-        # Mede latência (time_total em ms)
+        # Mede latencia (time_total em ms) sem bc
+        local latency_raw=""
         # shellcheck disable=SC2086
-        latency_ms=$(curl $CURL_OPTS \
+        latency_raw=$(curl $CURL_OPTS \
                          -o /dev/null -w "%{time_total}" \
                          -H "Authorization: Basic $ROMM_AUTH_B64" \
                          "${ROMM_URL}/api/heartbeat" 2>/dev/null) || true
-        if [ -n "$latency_ms" ]; then
-            latency_ms=$(printf '%.0f' "$(echo "$latency_ms * 1000" | bc 2>/dev/null || echo 0)") 2>/dev/null || latency_ms="?"
+        if [ -n "$latency_raw" ]; then
+            # Converte "0.012" para "12" ms via bash puro
+            local int_part dec_part
+            int_part=$(echo "$latency_raw" | cut -d'.' -f1)
+            dec_part=$(echo "$latency_raw" | cut -d'.' -f2 | head -c 3)
+            dec_part="${dec_part:-0}"
+            latency_ms=$(( ${int_part:-0} * 1000 + ${dec_part:-0} ))
         else
             latency_ms="?"
         fi
 
         case "$http_code" in
-            200) server_status="✓ Online" ;;
-            401) server_status="✗ Credenciais inválidas (401)" ;;
-            000) server_status="✗ Sem resposta (HTTP 000)"
+            200) server_status="ONLINE" ;;
+            401) server_status="Credenciais invalidas (401)" ;;
+            000) server_status="Sem resposta (HTTP 000)"
                  local host
                  host=$(printf '%s' "$ROMM_URL" | sed 's|https\?://||' | cut -d'/' -f1 | cut -d':' -f1)
                  local dns_result=""
@@ -1331,7 +1336,7 @@ show_status() {
                              | grep -iE 'could not|connection|ssl|failed|curl:' | head -1 | cut -c1-70) || true
                  [ -n "$curl_diag" ] && diag_lines="${diag_lines}\ncurl: $curl_diag"
                  ;;
-            *) server_status="✗ HTTP $http_code" ;;
+            *) server_status="HTTP $http_code" ;;
         esac
 
         # --- Disco -----------------------------------------------------------
@@ -1364,9 +1369,9 @@ show_status() {
 
         # --- Monta mensagem -------------------------------------------------
         local msg="Servidor:     $ROMM_URL\n"
-        msg+="Usuário:      $ROMM_USER\n"
+        msg+="Usuario:      $ROMM_USER\n"
         msg+="Status:       $server_status\n"
-        msg+="Latência:     ${latency_ms}ms\n"
+        msg+="Latencia:     ${latency_ms}ms\n"
         msg+="\n"
         msg+="-- Disco --\n"
         [ -n "$disk_info" ] && msg+="${disk_info}"
@@ -1374,29 +1379,28 @@ show_status() {
         msg+="-- Dados Locais --\n"
         msg+="Saves:        ${saves_count} arquivo(s)\n"
         msg+="Cache API:    ${cache_count} entrada(s)\n"
-        msg+="Tema:         ${DIALOGRC_THEME:-arkos}\n"
         msg+="\n"
-        [ -n "$diag_lines" ] && msg+="-- Diagnóstico --\n${diag_lines}\n"
+        [ -n "$diag_lines" ] && msg+="-- Diagnostico --\n${diag_lines}\n"
         msg+="Log: $LOG_FILE"
 
         dialog --backtitle "$BACKTITLE" \
-               --title "Status da Conexão" \
+               --title "Status da Conexao" \
                --msgbox "$msg" \
                22 $DLG_W > "$CURR_TTY"
     else
         dialog --backtitle "$BACKTITLE" \
                --title "Status" \
-               --msgbox "Nenhuma configuração encontrada.\n\nExecute a configuração inicial primeiro." \
+               --msgbox "Nenhuma configuracao encontrada.\n\nExecute a configuracao inicial primeiro." \
                $DLG_H $DLG_W > "$CURR_TTY"
     fi
 }
 
-# --- Auto-atualização -------------------------------------------------------
+# --- Auto-atualizacao -------------------------------------------------------
 
 # self_update
-# Baixa a versão mais recente do script diretamente do GitHub (branch main).
-# Compara a versão remota com a local antes de substituir; faz backup do
-# arquivo atual e só sobrescreve após confirmação do usuário.
+# Baixa a versao mais recente do script diretamente do GitHub (branch main).
+# Compara a versao remota com a local antes de substituir; faz backup do
+# arquivo atual e so sobrescreve apos confirmacao do usuario.
 self_update() {
     local REPO="fernandodimas/ArkOS_RomM-Sync-Tool"
     local BRANCH="main"
@@ -1407,16 +1411,16 @@ self_update() {
     local TMP_NEW="${TMP_DIR}/RomMSync_new.sh"
 
     dialog --backtitle "$BACKTITLE" \
-           --infobox "Verificando atualização em GitHub..." \
+           --infobox "Verificando atualizacao em GitHub..." \
            5 $DLG_W > "$CURR_TTY"
 
-    log "Verificando atualização: $RAW_URL"
+    log "Verificando atualizacao: $RAW_URL"
 
-    # Baixa nova versão
+    # Baixa nova versao
     if ! wget -q -O "$TMP_NEW" "$RAW_URL" 2>/dev/null; then
         dialog --backtitle "$BACKTITLE" \
                --title "Erro" \
-               --msgbox "✗ Falha ao conectar ao GitHub.\nVerifique sua conexão Wi-Fi." \
+               --msgbox "ERRO Falha ao conectar ao GitHub.\nVerifique sua conexao Wi-Fi." \
                $DLG_H $DLG_W > "$CURR_TTY"
         rm -f "$TMP_NEW"
         return 1
@@ -1425,67 +1429,67 @@ self_update() {
     if [ ! -s "$TMP_NEW" ]; then
         dialog --backtitle "$BACKTITLE" \
                --title "Erro" \
-               --msgbox "✗ Arquivo baixado está vazio." \
+               --msgbox "ERRO Arquivo baixado esta vazio." \
                $DLG_H $DLG_W > "$CURR_TTY"
         rm -f "$TMP_NEW"
         return 1
     fi
 
-    # Extrai versão do arquivo baixado
+    # Extrai versao do arquivo baixado
     local remote_ver
     remote_ver=$(grep -m1 '^readonly VERSION=' "$TMP_NEW" \
                  | sed 's/.*VERSION="\([^"]*\)".*/\1/' 2>/dev/null || echo "?")
 
     if [ "$remote_ver" = "$VERSION" ]; then
         dialog --backtitle "$BACKTITLE" \
-               --title "Sem atualizações" \
-               --msgbox "✓ Você já está na versão mais recente!\n\nVersão atual: $VERSION" \
+               --title "Sem atualizacoes" \
+               --msgbox "OK Voce ja esta na versao mais recente!\n\nVersao atual: $VERSION" \
                $DLG_H $DLG_W > "$CURR_TTY"
         rm -f "$TMP_NEW"
         return 0
     fi
 
-    # Pede confirmação antes de sobrescrever
+    # Pede confirmacao antes de sobrescrever
     dialog --backtitle "$BACKTITLE" \
-           --title "Atualização Disponível" \
-           --yesno "Nova versão encontrada!\n\nAtual:  v$VERSION\nNova:   v$remote_ver\n\nDeseja atualizar agora?" \
+           --title "Atualizacao Disponivel" \
+           --yesno "Nova versao encontrada!\n\nAtual:  v$VERSION\nNova:   v$remote_ver\n\nDeseja atualizar agora?" \
            $DLG_H $DLG_W > "$CURR_TTY" || {
         rm -f "$TMP_NEW"
         return 0
     }
 
-    # Backup da versão atual
+    # Backup da versao atual
     local backup_file="${SELF}.bak_v${VERSION}"
     cp -f "$SELF" "$backup_file" 2>/dev/null && \
         log "Backup criado: $backup_file"
 
-    # Substitui o script e garante permissão de execução
+    # Substitui o script e garante permissao de execucao
     if mv -f "$TMP_NEW" "$SELF" && chmod +x "$SELF"; then
         log "Script atualizado para v$remote_ver com sucesso."
 
-        # Executa updater para migrações de config
+        # Executa updater para migracoes de config
         local updater_path
         updater_path="$(dirname "$SELF")/rommsync_updater.sh"
         if [ -x "$updater_path" ]; then
             log "Executando updater: $updater_path"
             NEW_VERSION="$remote_ver" SCRIPT_DIR="$(dirname "$SELF")" \
                 "$updater_path" "$VERSION" 2>>"$LOG_FILE" || \
-                log "AVISO: updater retornou código diferente de zero."
+                log "AVISO: updater retornou codigo diferente de zero."
         else
-            log "Updater não encontrado em $updater_path — nenhuma migração executada."
+            log "Updater nao encontrado em $updater_path — nenhuma migracao executada."
         fi
 
         dialog --backtitle "$BACKTITLE" \
-               --title "Atualização Concluída" \
-               --msgbox "✓ Script atualizado para v$remote_ver!\n\nBackup salvo em:\n$backup_file\n\nO script será encerrado para aplicar a atualização." \
+               --title "Atualizacao Concluida" \
+               --msgbox "OK Script atualizado para v$remote_ver!\n\nBackup salvo em:\n$backup_file\n\nO script sera encerrado para aplicar a atualizacao." \
                $DLG_H $DLG_W > "$CURR_TTY"
-        # Sai para forçar releitura da nova versão
+        # Sai para forcar releitura da nova versao
         exit 0
     else
         log "ERRO: Falha ao substituir o script."
         dialog --backtitle "$BACKTITLE" \
                --title "Erro" \
-               --msgbox "✗ Falha ao gravar a nova versão.\nVerifique permissões em:\n$SELF" \
+               --msgbox "ERRO Falha ao gravar a nova versao.\nVerifique permissoes em:\n$SELF" \
                $DLG_H $DLG_W > "$CURR_TTY"
         rm -f "$TMP_NEW"
         return 1
@@ -1494,72 +1498,7 @@ self_update() {
 
 # --- Temas de Cores Dialog ------------------------------------------------
 
-# Mapa de temas: chave → arquivo dialogrc
-# Caminho base dos temas (relativo ao diretório do script)
-readonly THEMES_DIR="${SCRIPT_DIR:-.}/themes"
-declare -A THEME_MAP=(
-    ["arkos"]="${THEMES_DIR}/rommsync_arkos.dialogrc"
-    ["high_contrast"]="${THEMES_DIR}/rommsync_high_contrast.dialogrc"
-    ["blue"]="${THEMES_DIR}/rommsync_blue.dialogrc"
-    ["green"]="${THEMES_DIR}/rommsync_green.dialogrc"
-    ["default"]=""
-)
 
-# Aplica tema de cores dialog
-apply_theme() {
-    local theme_key="$1"
-    local theme_file="${THEME_MAP[$theme_key]:-}"
-
-    if [ -n "$theme_file" ] && [ -f "$theme_file" ]; then
-        export DIALOGRC="$theme_file"
-        log "Tema aplicado: $theme_key ($theme_file)"
-    else
-        unset DIALOGRC 2>/dev/null
-        log "Tema padrão do sistema (nenhum DIALOGRC definido)"
-    fi
-}
-
-# Lista temas disponíveis para o menu
-get_theme_list() {
-    local themes=()
-    for key in "${!THEME_MAP[@]}"; do
-        themes+=("$key")
-    done
-    echo "${themes[*]}"
-}
-
-# Menu de seleção de tema
-theme_menu() {
-    local current_theme="${DIALOGRC_THEME:-arkos}"
-
-    local choice
-    choice=$(dialog --output-fd 1 --backtitle "$BACKTITLE" \
-                    --title "Tema de Cores" \
-                    --menu "Selecione o tema visual:" \
-                    $DLG_H $DLG_W 8 \
-                    "arkos"         "ArkOS (padrão — preto com verde)" \
-                    "high_contrast" "Alto Contraste (amarelo/preto)" \
-                    "blue"          "Azul (visual suave)" \
-                    "green"         "Verde (terminal retro)" \
-                    "default"       "Padrão do sistema" \
-                    2>"$CURR_TTY") || return
-
-    DIALOGRC_THEME="$choice"
-    apply_theme "$choice"
-
-    # Salva no config
-    if grep -q '^DIALOGRC_THEME=' "$CONFIG_FILE" 2>/dev/null; then
-        sed -i "s/^DIALOGRC_THEME=.*/DIALOGRC_THEME=\"${choice}\"/" "$CONFIG_FILE"
-    else
-        echo "DIALOGRC_THEME=\"${choice}\"" >> "$CONFIG_FILE"
-    fi
-
-    log "Tema alterado para: $choice"
-    dialog --backtitle "$BACKTITLE" \
-           --title "Tema Aplicado" \
-           --msgbox "✓ Tema alterado para: $choice\n\nAs cores serão aplicadas nos próximos diálogos." \
-           $DLG_H $DLG_W > "$CURR_TTY"
-}
 
 # --- Menu Principal -------------------------------------------------------
 
@@ -1570,15 +1509,14 @@ main_menu() {
                         --title "Menu Principal" \
                         --menu "Use D-Pad para navegar:" \
                         $DLG_H $DLG_W 10 \
-                        "1" "⬆  Backup de Saves → RomM" \
-                        "2" "⬇  Download de Jogos ← RomM" \
-                        "3" "⚙  Reconfigurar Servidor" \
-                        "4" "📶 Status da Conexão" \
-                        "5" "📋 Ver Log" \
-                        "6" "🎨 Tema de Cores" \
-                        "7" "🗑  Limpar Cache" \
-                        "8" "🔄 Atualizar Script" \
-                        "9" "🚪 Sair" \
+                        "1" "Backup de Saves" \
+                        "2" "Download de Jogos" \
+                        "3" "Reconfigurar Servidor" \
+                        "4" "Status da Conexao" \
+                        "5" "Ver Log" \
+                        "6" "Limpar Cache" \
+                        "7" "Atualizar Script" \
+                        "8" "Sair" \
                         2>"$CURR_TTY") || break
 
         case "$choice" in
@@ -1595,20 +1533,19 @@ main_menu() {
                 else
                     dialog --backtitle "$BACKTITLE" \
                            --title "Log" \
-                           --msgbox "Nenhum log disponível ainda." \
+                           --msgbox "Nenhum log disponivel ainda." \
                            $DLG_H $DLG_W > "$CURR_TTY"
                 fi
                 ;;
-            6) theme_menu ;;
-            7)
+            6)
                 FORCE_REFRESH=1 cache_invalidate_all
                 dialog --backtitle "$BACKTITLE" \
                        --title "Cache Limpo" \
-                       --msgbox "✓ Cache de API limpo.\n\nAs próximas requisições buscarão dados frescos do servidor." \
+                       --msgbox "Cache de API limpo.\n\nProximas requisicoes buscarao dados frescos do servidor." \
                        $DLG_H $DLG_W > "$CURR_TTY"
                 ;;
-            8) self_update ;;
-            9)
+            7) self_update ;;
+            8)
                 dialog --backtitle "$BACKTITLE" \
                        --title "Sair" \
                        --yesno "Deseja sair do $SCRIPT_NAME?" \
@@ -1626,7 +1563,7 @@ _cleanup_gptokeyb() {
 
 # --- Auto-update via GitHub -----------------------------------------------
 
-# _ver_gt v1 v2 → retorna 0 se v1 > v2 (puro bash, sem sort -V)
+# _ver_gt v1 v2 -> retorna 0 se v1 > v2 (puro bash, sem sort -V)
 _ver_gt() {
     local v1="$1" v2="$2"
     [ "$v1" = "$v2" ] && return 1
@@ -1643,21 +1580,21 @@ _ver_gt() {
 }
 
 check_update() {
-    # Pula silenciosamente se não há internet (evita timeout de 12s)
+    # Pula silenciosamente se nao ha internet (evita timeout de 12s)
     if [ "${INTERNET_OK:-0}" != "1" ]; then
-        log "Auto-update: sem internet, verificação de atualizações ignorada."
+        log "Auto-update: sem internet, verificacao de atualizacoes ignorada."
         return 0
     fi
 
-    # Pula se usuário desabilitou autoupdate no config
+    # Pula se usuario desabilitou autoupdate no config
     if [ "${AUTOUPDATE:-on}" = "off" ]; then
-        log "Auto-update: desabilitado pelo usuário (AUTOUPDATE=off)."
+        log "Auto-update: desabilitado pelo usuario (AUTOUPDATE=off)."
         return 0
     fi
 
-    log "Verificando atualizações em $GITHUB_RAW ..."
+    log "Verificando atualizacoes em $GITHUB_RAW ..."
     dialog --backtitle "$BACKTITLE" \
-           --infobox "Verificando atualizações..." \
+           --infobox "Verificando atualizacoes..." \
            3 45 > "$CURR_TTY"
 
     # Usa wget (como ThemeMaster): funciona no ArkOS onde curl/HTTPS falha
@@ -1667,11 +1604,11 @@ check_update() {
     local latest_ver=""
     if wget -q --no-check-certificate --timeout=15 \
              -O "$tmp_check" "$GITHUB_RAW" 2>/dev/null; then
-        # || true: evita set -e quando grep não encontra match (exit 1)
+        # || true: evita set -e quando grep nao encontra match (exit 1)
         latest_ver=$(grep -m1 'readonly VERSION=' "$tmp_check" \
                      | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"') || true
     fi
-    # Fallback para curl caso wget não exista no dispositivo
+    # Fallback para curl caso wget nao exista no dispositivo
     if [ -z "$latest_ver" ]; then
         # || true: pipeline pode retornar !=0 (curl falha ou grep sem match)
         latest_ver=$(curl -sf --connect-timeout 6 --max-time 12 "$GITHUB_RAW" 2>/dev/null \
@@ -1684,22 +1621,22 @@ check_update() {
         return 0
     fi
 
-    log "Auto-update: instalado=$VERSION  disponível=$latest_ver"
+    log "Auto-update: instalado=$VERSION  disponivel=$latest_ver"
 
     if ! _ver_gt "$latest_ver" "$VERSION"; then
         dialog --backtitle "$BACKTITLE" \
-               --infobox "✓ Versão atual (v$VERSION) está atualizada." \
+               --infobox "OK Versao atual (v$VERSION) esta atualizada." \
                3 50 > "$CURR_TTY"
         sleep 1
         return 0
     fi
 
-    # Há versão mais nova — pergunta ao usuário
+    # Ha versao mais nova — pergunta ao usuario
     dialog --backtitle "$BACKTITLE" \
-           --title "Atualização Disponível" \
-           --yesno "Nova versão encontrada!\n\n  Instalado:   v$VERSION\n  Disponível:  v$latest_ver\n\nDeseja atualizar agora?" \
+           --title "Atualizacao Disponivel" \
+           --yesno "Nova versao encontrada!\n\n  Instalado:   v$VERSION\n  Disponivel:  v$latest_ver\n\nDeseja atualizar agora?" \
            11 $DLG_W > "$CURR_TTY"
-    [ $? -ne 0 ] && { log "Usuário recusou atualização."; return 0; }
+    [ $? -ne 0 ] && { log "Usuario recusou atualizacao."; return 0; }
 
     dialog --backtitle "$BACKTITLE" \
            --infobox "Baixando v$latest_ver do GitHub..." \
@@ -1708,7 +1645,7 @@ check_update() {
     local tmp_new
     tmp_new="${TMP_DIR}/RomMSync_update.sh"
 
-    # Download: usa wget primeiro (mais confiável no ArkOS), depois curl como fallback
+    # Download: usa wget primeiro (mais confiavel no ArkOS), depois curl como fallback
     local download_ok=0
     if wget -q --no-check-certificate --timeout=60 \
              -O "$tmp_new" "$GITHUB_RAW" 2>/dev/null; then
@@ -1730,7 +1667,7 @@ check_update() {
     if ! bash -n "$tmp_new" 2>/dev/null; then
         dialog --backtitle "$BACKTITLE" \
                --title "Erro" \
-               --msgbox "Arquivo baixado inválido.\nMantenha v$VERSION." \
+               --msgbox "Arquivo baixado invalido.\nMantenha v$VERSION." \
                $DLG_H $DLG_W > "$CURR_TTY"
         rm -f "$tmp_new"
         return 1
@@ -1742,21 +1679,21 @@ check_update() {
     sudo cp "$tmp_new" "$script_path" 2>/dev/null || cp "$tmp_new" "$script_path"
     rm -f "$tmp_new"
 
-    # Executa updater para migrações de config
+    # Executa updater para migracoes de config
     local updater_path
     updater_path="$(dirname "$script_path")/rommsync_updater.sh"
     if [ -x "$updater_path" ]; then
         log "Executando updater: $updater_path"
         NEW_VERSION="$latest_ver" SCRIPT_DIR="$(dirname "$script_path")" \
             "$updater_path" "$VERSION" 2>>"$LOG_FILE" || \
-            log "AVISO: updater retornou código diferente de zero."
+            log "AVISO: updater retornou codigo diferente de zero."
     else
-        log "Updater não encontrado em $updater_path — nenhuma migração executada."
+        log "Updater nao encontrado em $updater_path — nenhuma migracao executada."
     fi
 
     dialog --backtitle "$BACKTITLE" \
            --title "Atualizado!" \
-           --msgbox "✓ Atualizado para v$latest_ver!\n\nFeche e reabra o aplicativo para usar a nova versão." \
+           --msgbox "OK Atualizado para v$latest_ver!\n\nFeche e reabra o aplicativo para usar a nova versao." \
            $DLG_H $DLG_W > "$CURR_TTY"
 
     log "Atualizado de v$VERSION para v$latest_ver. Encerrando para aplicar."
@@ -1769,11 +1706,11 @@ main() {
     ensure_tmp
     log "=== $SCRIPT_NAME v$VERSION iniciado ==="
 
-    # --- Inicialização do terminal -------------------------------------------
+    # --- Inicializacao do terminal -------------------------------------------
     if [ -c "$CURR_TTY" ]; then
         export TERM=linux
         unset FBTERM
-        # Permissões (igual Plymouth Theme Changer.sh do ArkOS4clone)
+        # Permissoes (igual Plymouth Theme Changer.sh do ArkOS4clone)
         sudo chmod 666 "$CURR_TTY"  2>/dev/null || true
         sudo chmod 666 /dev/uinput  2>/dev/null || true
         printf "\033c" > "$CURR_TTY"
@@ -1784,7 +1721,7 @@ main() {
 
     # --- Controles (gptokeyb em /opt/inttools — ArkOS4clone) -----------------
     if [ -x "$GPTOKEYB_BIN" ]; then
-        # Mata instância anterior se existir
+        # Mata instancia anterior se existir
         pgrep -f gptokeyb | sudo xargs kill -9 2>/dev/null || true
         [ -f "$GPTOKEYB_DB" ] && export SDL_GAMECONTROLLERCONFIG_FILE="$GPTOKEYB_DB"
         "$GPTOKEYB_BIN" -1 "RomMSync.sh" -c "$GPTOKEYB_CFG" > /dev/null 2>&1 &
@@ -1792,7 +1729,7 @@ main() {
         log "gptokeyb iniciado: PID=$GPTOKEYB_PID  config=$GPTOKEYB_CFG"
         printf "\033c" > "$CURR_TTY"
     else
-        log "AVISO: gptokeyb não encontrado em $GPTOKEYB_BIN — controles via teclado apenas."
+        log "AVISO: gptokeyb nao encontrado em $GPTOKEYB_BIN — controles via teclado apenas."
     fi
 
     # Detecta tamanho do terminal para dialog
@@ -1800,37 +1737,34 @@ main() {
     cols=$(stty size 2>/dev/null | cut -d' ' -f2) || true
     rows=$(stty size 2>/dev/null | cut -d' ' -f1) || true
     
-    # Fallback para padrões se stty falhar (ex: ambiente sem terminal)
+    # Fallback para padroes se stty falhar (ex: ambiente sem terminal)
     cols=${cols:-72}
     rows=${cols:-27}
     
     DLG_W=$((cols - 4))
     DLG_H=$((rows - 4))
 
-    # --- Temas de Cores Dialog -----------------------------------------------
-    apply_theme "${DIALOGRC_THEME:-arkos}"
-
-    # Registra limpeza para qualquer forma de saída
+    # Registra limpeza para qualquer forma de saida
     trap '_cleanup_gptokeyb; clear; log "=== Encerrado ==="' EXIT INT TERM
 
     check_dependencies
     check_wifi
-    check_update || log "AVISO: check_update falhou, continuando sem atualização."
+    check_update || log "AVISO: check_update falhou, continuando sem atualizacao."
 
-    # Configuração inicial se não existir
+    # Configuracao inicial se nao existir
     if ! load_config; then
         dialog --backtitle "$BACKTITLE" \
-               --title "Primeira Execução" \
-               --msgbox "Configuração não encontrada.\nVamos configurar o servidor RomM agora." \
+               --title "Primeira Execucao" \
+               --msgbox "Configuracao nao encontrada.\nVamos configurar o servidor RomM agora." \
                $DLG_H $DLG_W > "$CURR_TTY"
         setup_config || {
             dialog --backtitle "$BACKTITLE" \
                    --title "Cancelado" \
-                   --msgbox "Configuração cancelada. O script será encerrado." \
+                   --msgbox "Configuracao cancelada. O script sera encerrado." \
                    $DLG_H $DLG_W > "$CURR_TTY"
             exit 0
         }
-        # Recarrega config após salvar
+        # Recarrega config apos salvar
         load_config || exit 1
     fi
 
