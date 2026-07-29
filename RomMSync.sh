@@ -12,7 +12,7 @@ export TERM="${TERM:-linux}"
 
 # --- Constantes -----------------------------------------------------------
 readonly SCRIPT_NAME="RomM-Sync-Tool"
-readonly VERSION="1.5.12"
+readonly VERSION="1.5.13"
 readonly CONFIG_FILE="${HOME}/.rommsync.conf"
 readonly CONF_VERSION="1.4.0" # Versao de configuracao — usado por rommsync_updater.sh
 TMP_DIR="/dev/shm/rommsync"    # RAM mais rapida que /tmp
@@ -1503,33 +1503,24 @@ self_update() {
     fi
 }
 
-# --- Verificacao de status do servidor em background -----------------------
-SERVER_STATUS="?"
-
-bg_check_server() {
-    if ! load_config 2>/dev/null; then
-        SERVER_STATUS="!"
-        return 0
-    fi
-    local code=""
-    code=$(curl -s -k --connect-timeout 5 --max-time 10 \
-                 -o /dev/null -w '%{http_code}' \
-                 -H "Authorization: Basic $ROMM_AUTH_B64" \
-                 "${ROMM_URL}/api/heartbeat" 2>/dev/null) || code="000"
-    case "$code" in
-        200) SERVER_STATUS="OK" ;;
-        401) SERVER_STATUS="AUTH" ;;
-        *)   SERVER_STATUS="ERR" ;;
-    esac
-    log "Server check: HTTP $code -> $SERVER_STATUS"
-}
-
 # --- Menu Principal -------------------------------------------------------
 
 main_menu() {
-    # Verificacao de servidor em background (nao bloqueia o menu)
-    bg_check_server &
-    wait
+    # Verificacao de servidor (rápida, sem bloquear muito)
+    SERVER_STATUS="?"
+    if load_config 2>/dev/null; then
+        local code=""
+        code=$(curl -s -k --connect-timeout 5 --max-time 10 \
+                     -o /dev/null -w '%{http_code}' \
+                     "${ROMM_URL}/api/heartbeat" 2>/dev/null) || code="000"
+        case "$code" in
+            200) SERVER_STATUS="OK" ;;
+            401) SERVER_STATUS="AUTH" ;;
+            *)   SERVER_STATUS="ERR" ;;
+        esac
+    else
+        SERVER_STATUS="!"
+    fi
 
     while true; do
         # Monta header dinamico
